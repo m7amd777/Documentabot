@@ -41,3 +41,20 @@ def upload_pdf(file: UploadFile = File(...)):
 def chat(request: ChatRequest):
     result = ask_question(request.question)
     return result
+
+@app.get("/documents")
+def get_documents():
+    documents = []
+
+    for filename in os.listdir(UPLOAD_DIR):
+        file_path = os.path.join(UPLOAD_DIR, filename)
+
+        if os.path.isfile(file_path):
+            size_kb = round(os.path.getsize(file_path) / 1024, 2)
+
+            documents.append({
+                "filename": filename,
+                "size_kb": size_kb
+            })
+
+    return documents
