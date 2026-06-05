@@ -1,7 +1,11 @@
 import os
 import shutil
 from fastapi import FastAPI, UploadFile, File
-from rag import ingest_pdf
+from rag import ingest_pdf, ask_question
+from pydantic import BaseModel
+
+class ChatRequest(BaseModel):
+    question: str
 
 UPLOAD_DIR = "uploads"
 app = FastAPI(title="Enterprise Documentation Assistant")
@@ -31,3 +35,9 @@ def upload_pdf(file: UploadFile = File(...)):
         "message": "File uploaded and indexed successfully",
         "data": result
     }
+
+
+@app.post("/chat")
+def chat(request: ChatRequest):
+    result = ask_question(request.question)
+    return result
