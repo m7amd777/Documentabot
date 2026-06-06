@@ -1,0 +1,1490 @@
+=== d2d00ed4-779b-418b-a9dc-5f9db975a7cc (1837 chars) ===
+// app.jsx — top nav + screen routing + shared document state
+const { useState } = React;
+function App() {
+  const [screen, setScreen] = useState("home"); // home | kb | chat
+  const [docs, setDocs] = useState(DOCUMENTS);
+
+  function addDoc(d) {
+    setDocs(prev => [d, ...prev]);
+    // simulate indexing completing
+    setTimeout(() => {
+      setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: "indexed", chunks: 47, isNew: false } : x));
+    }, 6000);
+  }
+
+  const navItems = [
+    { id: "kb", label: "Knowledge Base", icon: "folder" },
+    { id: "chat", label: "Chatbot", icon: "chat" },
+  ];
+
+  return (
+    <div className="app">
+      <nav className="topnav">
+        <div className="brand" onClick={() => setScreen("home")}>
+          <div className="brand-mark"><Icons.bolt size={17} fill="#fff" stroke="#fff" /></div>
+          <div className="brand-name">Benefit <b>Documentabot</b></div>
+        </div>
+        <div className="nav-links">
+          {navItems.map(n => {
+            const Icon = Icons[n.icon];
+            return (
+              <button key={n.id} className={"nav-link" + (screen === n.id ? " active" : "")} onClick={() => setScreen(n.id)}>
+                <Icon size={16} /> {n.label}
+              </button>
+            );
+          })}
+          <button className="nav-link"><Icons.settings size={16} /> Settings</button>
+          <div className="nav-divider" />
+          <div className="avatar" title="Your profile">AV</div>
+        </div>
+      </nav>
+
+      <div className="screen">
+        {screen === "home" && <Landing navigate={setScreen} />}
+        {screen === "kb"   && <KnowledgeBase docs={docs} addDoc={addDoc} navigate={setScreen} />}
+        {screen === "chat" && <Chatbot />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+
+=== 9edc0d03-adec-40d0-990a-58958ed40df1 (2485 chars) ===
+// shared.jsx — small reusable presentational components
+
+// File-type chip (e.g. PDF, DOCX) with brand-correct color
+function FileChip({ type, size = 36 }) {
+  const ft = FILE_TYPES[type] || FILE_TYPES.txt;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size * 0.27,
+      background: ft.bg, color: ft.color,
+      display: "grid", placeItems: "center", flex: "0 0 auto",
+      fontFamily: "var(--mono)", fontWeight: 700,
+      fontSize: size * 0.27, letterSpacing: "-.3px",
+    }}>
+      {ft.label}
+    </div>
+  );
+}
+
+const STATUS_MAP = {
+  indexed:    { cls: "badge-green", label: "Indexed" },
+  processing: { cls: "badge-amber", label: "Processing" },
+  review:     { cls: "badge-slate", label: "Needs Review" },
+  failed:     { cls: "badge-red",   label: "Failed" },
+};
+
+function StatusBadge({ status }) {
+  const s = STATUS_MAP[status] || STATUS_MAP.review;
+  return (
+    <span className={"badge " + s.cls}>
+      {status === "processing"
+        ? <Icons.refresh size={12} className="spin" sw={2.2} />
+        : <span className="dot" />}
+      {s.label}
+    </span>
+  );
+}
+
+// Confidence meter — segmented bar + label
+function Confidence({ value, compact }) {
+  const tone = value >= 90 ? "var(--green)" : value >= 70 ? "var(--amber)" : "var(--red)";
+  const label = value >= 90 ? "High" : value >= 70 ? "Medium" : value > 0 ? "Low" : "None";
+  const segs = 5, filled = Math.round((value / 100) * segs);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", gap: 2.5 }}>
+        {Array.from({ length: segs }).map((_, i) => (
+          <span key={i} style={{
+            width: compact ? 5 : 7, height: compact ? 10 : 13, borderRadius: 2,
+            background: i < filled ? tone : "#e7e4db",
+          }} />
+        ))}
+      </div>
+      <span style={{ fontSize: compact ? 11 : 12, fontWeight: 700, color: tone }}>
+        {label}{value > 0 && <span className="mono" style={{ fontWeight: 600, opacity: .85 }}> · {value}%</span>}
+      </span>
+    </div>
+  );
+}
+
+// Render **bold** markup within an answer paragraph
+function RichText({ text }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return <>{parts.map((p, i) =>
+    p.startsWith("**") && p.endsWith("**")
+      ? <strong key={i} style={{ fontWeight: 700, color: "var(--ink)" }}>{p.slice(2, -2)}</strong>
+      : <span key={i}>{p}</span>
+  )}</>;
+}
+
+Object.assign(window, { FileChip, StatusBadge, Confidence, RichText });
+
+
+=== b01dc991-b488-45a7-9504-d60c2fa2da6e (4190 chars) ===
+// icons.jsx — clean 24px stroke icon set (currentColor)
+const Ic = ({ d, children, size = 24, fill = "none", sw = 1.7, ...p }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill={fill}
+       stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" {...p}>
+    {d ? <path d={d} /> : children}
+  </svg>
+);
+
+const Icons = {
+  chat:    (p) => <Ic {...p} d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />,
+  folder:  (p) => <Ic {...p} d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />,
+  search:  (p) => <Ic {...p}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></Ic>,
+  settings:(p) => <Ic {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.8 7.8 0 0 0 .1-3l1.7-1.3-1.8-3.1-2 .8a7.5 7.5 0 0 0-2.6-1.5l-.3-2.1H10l-.3 2.1A7.5 7.5 0 0 0 7 6.9l-2-.8-1.8 3.1L4.9 10.5a7.8 7.8 0 0 0 0 3l-1.7 1.3 1.8 3.1 2-.8a7.5 7.5 0 0 0 2.6 1.5l.3 2.1h3.6l.3-2.1a7.5 7.5 0 0 0 2.6-1.5l2 .8 1.8-3.1z"/></Ic>,
+  layers:  (p) => <Ic {...p}><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/></Ic>,
+  zap:     (p) => <Ic {...p} d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />,
+  doc:     (p) => <Ic {...p}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></Ic>,
+  send:    (p) => <Ic {...p} d="M4 12 20 4l-6 16-3-7-7-1z" />,
+  plus:    (p) => <Ic {...p}><path d="M12 5v14M5 12h14"/></Ic>,
+  arrowR:  (p) => <Ic {...p} d="M5 12h14M13 6l6 6-6 6" />,
+  upload:  (p) => <Ic {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 16V4M7 9l5-5 5 5"/></Ic>,
+  x:       (p) => <Ic {...p}><path d="M6 6l12 12M18 6 6 18"/></Ic>,
+  chevD:   (p) => <Ic {...p} d="m6 9 6 6 6-6" />,
+  chevR:   (p) => <Ic {...p} d="m9 6 6 6-6 6" />,
+  dots:    (p) => <Ic {...p}><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></Ic>,
+  check:   (p) => <Ic {...p} d="M5 12.5 10 17l9-10" />,
+  shield:  (p) => <Ic {...p}><path d="M12 3 5 6v6c0 4 3 6.5 7 8 4-1.5 7-4 7-8V6l-7-3z"/><path d="m9 12 2 2 4-4"/></Ic>,
+  clock:   (p) => <Ic {...p}><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></Ic>,
+  filter:  (p) => <Ic {...p} d="M4 5h16l-6 7v6l-4 2v-8L4 5z" />,
+  eye:     (p) => <Ic {...p}><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></Ic>,
+  refresh: (p) => <Ic {...p}><path d="M20 11a8 8 0 0 0-14-4.3L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0 0 14 4.3l2-2.3"/><path d="M20 20v-5h-5"/></Ic>,
+  trash:   (p) => <Ic {...p}><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/></Ic>,
+  swap:    (p) => <Ic {...p}><path d="M7 4 3 8l4 4"/><path d="M3 8h13a4 4 0 0 1 0 8h-2"/><path d="m17 20 4-4-4-4"/></Ic>,
+  warn:    (p) => <Ic {...p}><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/></Ic>,
+  spark:   (p) => <Ic {...p} d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6L12 3z" />,
+  link:    (p) => <Ic {...p}><path d="M9 12h6"/><path d="M10 8H8a4 4 0 0 0 0 8h2"/><path d="M14 8h2a4 4 0 0 1 0 8h-2"/></Ic>,
+  quote:   (p) => <Ic {...p}><path d="M9 7H6a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3H5M19 7h-3a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3h-3"/></Ic>,
+  open:    (p) => <Ic {...p}><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/></Ic>,
+  home:    (p) => <Ic {...p}><path d="m3 11 9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9"/></Ic>,
+  database:(p) => <Ic {...p}><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></Ic>,
+  bolt:    (p) => <Ic {...p} d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />,
+  paperclip:(p)=> <Ic {...p} d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.6 1.6 0 0 1-2.3-2.3l7.3-7.3" />,
+  sliders: (p) => <Ic {...p}><path d="M4 7h10M18 7h2M4 17h6M14 17h6"/><circle cx="16" cy="7" r="2"/><circle cx="12" cy="17" r="2"/></Ic>,
+  page:    (p) => <Ic {...p}><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></Ic>,
+};
+
+window.Icons = Icons;
+
+
+=== 71aa658d-fc6a-45a8-9887-b3fd14cab1ed (5327 chars) ===
+// citationpanel.jsx — right-side document preview with highlighted cited text
+function CitationPanel({ cite, searched, onClose }) {
+  // Build a fake page of body text with the cited snippet highlighted in the middle
+  const before = "This section establishes the standards that apply across all Benefit entities. Definitions used here follow the Group Glossary unless stated otherwise. ";
+  const after = " Exceptions require written approval from the document owner and are reviewed annually by the governing department.";
+
+  return (
+    <div style={{
+      width: 388, flex: "0 0 388px", borderLeft: "1px solid var(--border)",
+      background: "var(--white)", display: "flex", flexDirection: "column",
+      height: "100%", animation: "slideIn .24s ease-out",
+    }}>
+      <style>{`@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}`}</style>
+
+      {/* header */}
+      <div style={{ padding: "15px 17px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
+        <FileChip type={cite.type} size={36} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cite.doc}.{cite.type}</div>
+          <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 1 }}>{cite.ref} · updated May 28, 2026</div>
+        </div>
+        <button onClick={onClose} className="btn-subtle" style={{ width: 32, height: 32, borderRadius: 8, border: "none", color: "var(--ink-3)", display: "grid", placeItems: "center" }}>
+          <Icons.x size={17} />
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: 17 }}>
+        {/* confidence callout */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 13px", borderRadius: 11, background: "var(--sand-2)", border: "1px solid var(--border)", marginBottom: 15 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Icons.shield size={16} style={{ color: "var(--green)" }} />
+            <span style={{ fontSize: 12.5, fontWeight: 700 }}>Cited passage</span>
+          </div>
+          <Confidence value={cite.conf} compact />
+        </div>
+
+        {/* document preview page */}
+        <div style={{
+          border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden",
+          boxShadow: "var(--sh-xs)",
+        }}>
+          <div style={{ padding: "9px 13px", borderBottom: "1px solid var(--border)", background: "var(--sand-2)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600 }}>{cite.doc} — {cite.ref}</span>
+            <Icons.page size={14} style={{ color: "var(--ink-3)" }} />
+          </div>
+          <div style={{ padding: "16px 16px 20px", fontSize: 12.5, lineHeight: 1.7, color: "var(--ink-3)" }}>
+            <div style={{ height: 9, width: "55%", background: "var(--hover)", borderRadius: 3, marginBottom: 13 }} />
+            {before}
+            <mark style={{
+              background: "var(--red-tint)", color: "var(--ink)", padding: "2px 3px",
+              borderRadius: 3, boxShadow: "inset 0 -2px 0 var(--red)", fontWeight: 600, fontStyle: "italic",
+            }}>{cite.snippet}</mark>
+            {after}
+            <div style={{ height: 8, width: "92%", background: "var(--hover)", borderRadius: 3, marginTop: 13 }} />
+            <div style={{ height: 8, width: "78%", background: "var(--hover)", borderRadius: 3, marginTop: 7 }} />
+          </div>
+        </div>
+
+        <button className="btn btn-primary" style={{ width: "100%", marginTop: 15 }}>
+          <Icons.open size={16} /> Open document
+        </button>
+        <button className="btn btn-ghost" style={{ width: "100%", marginTop: 9 }}>
+          <Icons.link size={15} /> Copy link to passage
+        </button>
+
+        {/* documents searched */}
+        <div style={{ marginTop: 22 }}>
+          <SectionLabel icon="search" text="Documents searched" />
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
+            {searched.map((s, i) => {
+              const hit = s === cite.doc;
+              return (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", borderRadius: 9,
+                  border: "1px solid " + (hit ? "var(--red-tint-2)" : "var(--border)"),
+                  background: hit ? "var(--red-tint)" : "var(--white)",
+                }}>
+                  <Icons.doc size={15} style={{ color: hit ? "var(--red)" : "var(--ink-3)" }} />
+                  <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>{s}</span>
+                  {hit
+                    ? <span className="badge badge-red" style={{ height: 20, padding: "0 7px" }}><span className="dot" /> matched</span>
+                    : <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>no match</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+window.CitationPanel = CitationPanel;
+
+
+=== cc5b7997-9480-4d99-abfb-93c6286fe710 (5899 chars) ===
+// landing.jsx — Home / hero screen
+function Landing({ navigate }) {
+  const cards = [
+    {
+      key: "kb", icon: "folder", go: "kb",
+      title: "View Knowledge Base",
+      desc: "Browse and manage available documents",
+      foot: "124 documents · 8 categories",
+    },
+    {
+      key: "chat", icon: "chat", go: "chat",
+      title: "Open Documentabot",
+      desc: "Ask questions and get cited answers",
+      foot: "Grounded in indexed documents",
+      primary: true,
+    },
+  ];
+
+  return (
+    <div style={{
+      height: "100%", overflowY: "auto",
+      background:
+        "radial-gradient(120% 80% at 50% -10%, var(--sand) 0%, var(--sand-2) 38%, var(--bg) 78%)",
+    }}>
+      <div style={{ maxWidth: 940, margin: "0 auto", padding: "76px 28px 56px", textAlign: "center" }}>
+
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "6px 13px 6px 9px", borderRadius: 999,
+          background: "var(--white)", border: "1px solid var(--border)",
+          boxShadow: "var(--sh-xs)", fontSize: 12.5, fontWeight: 600, color: "var(--ink-2)",
+          animation: "fadeUp .5s both", whiteSpace: "nowrap",
+        }}>
+          <span className="badge badge-green" style={{ height: 20, padding: "0 7px" }}>
+            <span className="dot" /> Live
+          </span>
+          Internal knowledge assistant · secured to your workspace
+        </div>
+
+        <h1 style={{
+          fontSize: 52, lineHeight: 1.04, letterSpacing: "-1.6px", fontWeight: 800,
+          margin: "26px 0 0", color: "var(--ink)", animation: "fadeUp .5s .05s both",
+        }}>
+          Chat with Benefit<br />Documentation
+        </h1>
+
+        <p style={{
+          fontSize: 18.5, lineHeight: 1.5, color: "var(--ink-2)", fontWeight: 450,
+          maxWidth: 560, margin: "20px auto 0", textWrap: "pretty",
+          animation: "fadeUp .5s .1s both",
+        }}>
+          Search policies, procedures, manuals, and internal documents
+          through a secure AI assistant — every answer traced back to its source.
+        </p>
+
+        {/* Action cards */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18,
+          maxWidth: 700, margin: "44px auto 0", animation: "fadeUp .5s .16s both",
+        }}>
+          {cards.map((c) => {
+            const Icon = Icons[c.icon];
+            return (
+              <button key={c.key} onClick={() => navigate(c.go)}
+                className="land-card"
+                style={{
+                  textAlign: "left", background: "var(--white)",
+                  border: "1px solid " + (c.primary ? "var(--red-tint-2)" : "var(--border)"),
+                  borderRadius: "var(--r-lg)", padding: "24px 22px 20px",
+                  boxShadow: "var(--sh-sm)", cursor: "pointer", transition: ".18s",
+                  position: "relative", overflow: "hidden",
+                }}>
+                <div style={{
+                  width: 50, height: 50, borderRadius: 14, marginBottom: 50,
+                  display: "grid", placeItems: "center",
+                  background: c.primary ? "var(--red)" : "var(--sand)",
+                  color: c.primary ? "#fff" : "var(--red)",
+                  boxShadow: c.primary ? "0 4px 12px rgba(233,0,48,.32)" : "none",
+                }}>
+                  <Icon size={24} sw={1.8} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: "-.3px" }}>{c.title}</h3>
+                  <span className="land-arrow" style={{
+                    width: 30, height: 30, borderRadius: 9, flex: "0 0 auto",
+                    display: "grid", placeItems: "center",
+                    background: c.primary ? "var(--red-tint)" : "var(--hover)",
+                    color: c.primary ? "var(--red)" : "var(--ink-2)", transition: ".18s",
+                  }}>
+                    <Icons.arrowR size={17} sw={2} />
+                  </span>
+                </div>
+                <p style={{ margin: "7px 0 16px", fontSize: 14, color: "var(--ink-2)", lineHeight: 1.45 }}>{c.desc}</p>
+                <div style={{
+                  paddingTop: 13, borderTop: "1px solid var(--border)",
+                  fontSize: 12, fontWeight: 600, color: "var(--ink-3)",
+                  display: "flex", alignItems: "center", gap: 7,
+                }}>
+                  <Icons.shield size={14} /> {c.foot}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Stats row */}
+        <div style={{
+          display: "flex", justifyContent: "center", gap: 0, marginTop: 40,
+          animation: "fadeUp .5s .22s both",
+        }}>
+          {[
+            { v: "124", l: "documents indexed" },
+            { v: "8", l: "knowledge categories" },
+            { v: "Today", l: "last sync" },
+          ].map((s, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <div style={{ width: 1, background: "var(--border-2)", margin: "4px 28px" }} />}
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.6px", color: "var(--ink)" }}>{s.v}</div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-3)", fontWeight: 600, marginTop: 2 }}>{s.l}</div>
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div style={{
+          marginTop: 46, fontSize: 12, color: "var(--ink-4)", fontWeight: 600,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          animation: "fadeIn .6s .3s both",
+        }}>
+          <Icons.shield size={14} /> Answers are restricted to documents indexed in your Benefit workspace.
+        </div>
+      </div>
+    </div>
+  );
+}
+window.Landing = Landing;
+
+
+=== 4c2cd43a-a6ca-4957-94e7-d07b42229685 (7380 chars) ===
+// uploadmodal.jsx — Add Document modal
+const { useState, useRef } = React;
+function UploadModal({ onClose, onUpload }) {
+  const [file, setFile] = useState(null);
+  const [drag, setDrag] = useState(false);
+  const [title, setTitle] = useState("");
+  const [cat, setCat] = useState("HR Policies");
+  const [access, setAccess] = useState("All employees");
+  const [desc, setDesc] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef();
+
+  const FAKE = { name: "Remote Work Policy 2026", type: "pdf", size: "1.3 MB", pages: 18 };
+
+  function pick() {
+    // simulate selecting a file
+    setFile(FAKE);
+    if (!title) setTitle(FAKE.name);
+  }
+
+  function submit() {
+    if (!file) return;
+    setUploading(true);
+    setTimeout(() => {
+      onUpload({
+        id: "new" + Date.now(),
+        name: title || file.name, type: file.type, cat,
+        owner: "You", ownerInit: "YO", updated: "Just now",
+        size: file.size, pages: file.pages, status: "processing", chunks: 0,
+        access, isNew: true,
+      });
+      onClose();
+    }, 900);
+  }
+
+  return (
+    <div onClick={onClose} style={{
+      position: "absolute", inset: 0, zIndex: 60,
+      background: "rgba(31,31,31,.42)", backdropFilter: "blur(3px)",
+      display: "grid", placeItems: "center", padding: 24, animation: "fadeIn .16s",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 520, background: "var(--white)", borderRadius: 18,
+        boxShadow: "var(--sh-lg)", overflow: "hidden", animation: "pop .2s ease-out",
+      }}>
+        {/* header */}
+        <div style={{ padding: "20px 22px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Add Document</h3>
+            <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--ink-2)" }}>It will be indexed automatically after upload.</p>
+          </div>
+          <button onClick={onClose} className="btn-subtle" style={{ width: 34, height: 34, borderRadius: 9, border: "none", display: "grid", placeItems: "center", color: "var(--ink-3)" }}>
+            <Icons.x size={18} />
+          </button>
+        </div>
+
+        <div style={{ padding: 22, maxHeight: "62vh", overflowY: "auto" }}>
+          {/* drop zone */}
+          {!file ? (
+            <div
+              onClick={pick}
+              onDragOver={e => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={e => { e.preventDefault(); setDrag(false); pick(); }}
+              style={{
+                border: "2px dashed " + (drag ? "var(--red)" : "var(--border-2)"),
+                background: drag ? "var(--red-tint)" : "var(--sand-2)",
+                borderRadius: 14, padding: "34px 20px", textAlign: "center", cursor: "pointer", transition: ".15s",
+              }}>
+              <div style={{ width: 48, height: 48, margin: "0 auto 12px", borderRadius: 13, background: "var(--white)", border: "1px solid var(--border)", display: "grid", placeItems: "center", color: "var(--red)" }}>
+                <Icons.upload size={22} />
+              </div>
+              <div style={{ fontSize: 14.5, fontWeight: 700 }}>Drag & drop a file here</div>
+              <div style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 4 }}>or <span style={{ color: "var(--red)", fontWeight: 700 }}>browse</span> from your computer</div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 12 }}>PDF · DOCX · MD · TXT · XLSX — max 50 MB</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 13, padding: 14, borderRadius: 12, border: "1px solid var(--border)", background: "var(--sand-2)" }}>
+              <FileChip type={file.type} size={40} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{file.name}.{file.type}</div>
+                <div className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)", marginTop: 2 }}>{file.size} · {file.pages} pages · ready to upload</div>
+              </div>
+              <button onClick={() => setFile(null)} className="btn-subtle" style={{ width: 30, height: 30, borderRadius: 8, border: "none", color: "var(--ink-3)" }}><Icons.x size={16} /></button>
+            </div>
+          )}
+
+          {/* fields */}
+          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <Field label="Document title">
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Remote Work Policy 2026" style={inp} />
+            </Field>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Category">
+                <Select value={cat} onChange={setCat} options={["HR Policies","Compliance","IT & Security","Operations","Finance","Product","Legal"]} />
+              </Field>
+              <Field label="Access level">
+                <Select value={access} onChange={setAccess} options={["All employees","Managers only","Finance, Managers","Support team","Legal, IT"]} />
+              </Field>
+            </div>
+            <Field label="Description" optional>
+              <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Short summary to help colleagues find this document…" style={{ ...inp, height: "auto", padding: "10px 12px", resize: "vertical", lineHeight: 1.5 }} />
+            </Field>
+          </div>
+        </div>
+
+        {/* footer */}
+        <div style={{ padding: "14px 22px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 10, background: "var(--sand-2)" }}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={uploading}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={!file || uploading} style={{ minWidth: 168 }}>
+            {uploading ? <><Icons.refresh size={16} className="spin" /> Uploading…</> : <><Icons.upload size={16} /> Upload Document</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const inp = {
+  width: "100%", height: 40, padding: "0 12px", borderRadius: 9,
+  border: "1px solid var(--border-2)", background: "var(--white)",
+  fontSize: 13.5, outline: "none",
+};
+
+function Field({ label, optional, children }) {
+  return (
+    <label style={{ display: "block" }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink-2)", marginBottom: 6 }}>
+        {label}{optional && <span style={{ color: "var(--ink-4)", fontWeight: 500 }}> · optional</span>}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+function Select({ value, onChange, options }) {
+  return (
+    <div style={{ position: "relative" }}>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{
+        ...inp, appearance: "none", paddingRight: 32, cursor: "pointer", fontWeight: 600,
+      }}>
+        {options.map(o => <option key={o}>{o}</option>)}
+      </select>
+      <Icons.chevD size={15} style={{ position: "absolute", right: 11, top: 12.5, color: "var(--ink-3)", pointerEvents: "none" }} />
+    </div>
+  );
+}
+
+window.UploadModal = UploadModal;
+
+
+=== 52a54e28-ff53-44e6-b1cb-ea9c6d2b82e1 (11280 chars) ===
+// chatparts.jsx — answer card, citations, tool calls, citation panel
+const { useState } = React;
+
+
+// ---------- Citation pill with hover tooltip ----------
+function CitePill({ cite, onOpen }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <span style={{ position: "relative", display: "inline-block" }}
+          onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button onClick={() => onOpen(cite)} style={{
+        display: "inline-flex", alignItems: "center", gap: 6, height: 26, padding: "0 9px 0 7px",
+        borderRadius: 7, border: "1px solid var(--border-2)", background: "var(--white)",
+        fontSize: 12, fontWeight: 600, color: "var(--ink)", transition: ".12s",
+      }} onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--red)"; e.currentTarget.style.background = "var(--red-tint)"; }}
+         onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-2)"; e.currentTarget.style.background = "var(--white)"; }}>
+        <span style={{
+          width: 16, height: 16, borderRadius: 5, background: "var(--red)", color: "#fff",
+          fontSize: 10, fontWeight: 700, display: "grid", placeItems: "center",
+        }}>{cite.id}</span>
+        <FileChip type={cite.type} size={15} />
+        <span style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cite.doc}</span>
+        <span className="mono" style={{ color: "var(--ink-3)", fontSize: 11 }}>· {cite.ref}</span>
+      </button>
+      {hover && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 9px)", left: 0, width: 290, zIndex: 50,
+          background: "var(--ink)", color: "#fff", borderRadius: 12, padding: 13,
+          boxShadow: "var(--sh-lg)", animation: "pop .13s ease-out", pointerEvents: "none",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <FileChip type={cite.type} size={22} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cite.doc}.{cite.type}</div>
+              <div className="mono" style={{ fontSize: 10.5, color: "rgba(255,255,255,.6)" }}>{cite.ref}</div>
+            </div>
+          </div>
+          <div style={{
+            fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,.88)",
+            borderLeft: "2px solid var(--red)", paddingLeft: 9, fontStyle: "italic",
+          }}>“{cite.snippet}”</div>
+          <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid rgba(255,255,255,.12)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 10.5, color: "rgba(255,255,255,.6)", fontWeight: 600 }}>MATCH CONFIDENCE</span>
+            <span className="mono" style={{ fontSize: 11.5, fontWeight: 700, color: cite.conf >= 90 ? "#4ade80" : "#fbbf24" }}>{cite.conf}%</span>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 10.5, color: "rgba(255,255,255,.5)", display: "flex", alignItems: "center", gap: 5 }}>
+            <Icons.open size={11} /> Click to preview in context
+          </div>
+          <div style={{ position: "absolute", bottom: -5, left: 18, width: 10, height: 10, background: "var(--ink)", transform: "rotate(45deg)" }} />
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ---------- Tool calls (live + collapsed) ----------
+function ToolCalls({ tools, states, collapsed, defaultOpen }) {
+  const [open, setOpen] = useState(defaultOpen || false);
+  const doneCount = states.filter(s => s === "done").length;
+
+  if (collapsed) {
+    return (
+      <div style={{ marginTop: 12 }}>
+        <button onClick={() => setOpen(o => !o)} style={{
+          display: "inline-flex", alignItems: "center", gap: 8, height: 28, padding: "0 11px",
+          borderRadius: 8, border: "1px solid var(--border)", background: "var(--sand-2)",
+          fontSize: 11.5, fontWeight: 600, color: "var(--ink-2)",
+        }}>
+          <Icons.zap size={13} style={{ color: "var(--red)" }} />
+          {doneCount} actions used
+          <Icons.chevD size={13} style={{ transform: open ? "rotate(180deg)" : "none", transition: ".15s", opacity: .6 }} />
+        </button>
+        {open && (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+            {tools.map((t, i) => <ToolRow key={t.id} tool={t} state={states[i]} />)}
+          </div>
+        )}
+      </div>
+    );
+  }
+  // live mode
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {tools.map((t, i) => <ToolRow key={t.id} tool={t} state={states[i]} live />)}
+    </div>
+  );
+}
+
+function ToolRow({ tool, state, live }) {
+  const Icon = Icons[tool.icon];
+  const isDone = state === "done", isRun = state === "running";
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 11, padding: "9px 12px",
+      borderRadius: 10, border: "1px solid " + (isRun ? "var(--red-tint-2)" : "var(--border)"),
+      background: isRun ? "var(--red-tint)" : "var(--white)",
+      opacity: state === "pending" ? .45 : 1, transition: ".2s",
+      animation: live && state !== "pending" ? "fadeUp .25s both" : "none",
+    }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: 8, flex: "0 0 auto", display: "grid", placeItems: "center",
+        background: isDone ? "var(--green-bg)" : isRun ? "var(--red)" : "var(--hover)",
+        color: isDone ? "var(--green)" : isRun ? "#fff" : "var(--ink-3)",
+      }}>
+        {isRun ? <Icons.refresh size={15} className="spin" /> : isDone ? <Icons.check size={16} sw={2.4} /> : <Icon size={15} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>{tool.label}</div>
+        <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)" }}>{tool.detail}</div>
+      </div>
+      {isDone && <span className="mono" style={{ fontSize: 10.5, color: "var(--green)", fontWeight: 600 }}>done</span>}
+      {isRun && <span className="mono" style={{ fontSize: 10.5, color: "var(--red)", fontWeight: 600 }}>running…</span>}
+    </div>
+  );
+}
+
+// ---------- Answer card ----------
+function AnswerCard({ data, tools, states, onOpenCite, onFollowup }) {
+  return (
+    <div style={{ animation: "fadeUp .3s both" }}>
+      {/* answer text */}
+      <div style={{ fontSize: 14.5, lineHeight: 1.62, color: "var(--ink-2)" }}>
+        {data.noAnswer && (
+          <div style={{
+            display: "flex", gap: 11, padding: "12px 14px", marginBottom: 13, borderRadius: 11,
+            background: "var(--amber-bg)", border: "1px solid #f0e0b8",
+          }}>
+            <Icons.warn size={18} style={{ color: "var(--amber)", flex: "0 0 auto", marginTop: 1 }} />
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#8a5e06" }}>
+              Not enough indexed information found
+            </div>
+          </div>
+        )}
+        {data.answer.map((p, i) => (
+          <p key={i} style={{ margin: i ? "11px 0 0" : 0 }}><RichText text={p} /></p>
+        ))}
+      </div>
+
+      {/* missing doc warning (citation/source not found) */}
+      {data.missingDoc && (
+        <div style={{
+          marginTop: 13, padding: 13, borderRadius: 12, border: "1px dashed var(--border-2)",
+          background: "var(--sand-2)", display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <FileChip type={data.missingDoc.type} size={34} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{data.missingDoc.name}.{data.missingDoc.type}</div>
+            <div style={{ fontSize: 11.5, color: "var(--ink-3)", marginTop: 1 }}>Likely source · not yet available to search</div>
+          </div>
+          <StatusBadge status={data.missingDoc.status} />
+          <button className="btn btn-ghost btn-sm"><Icons.refresh size={14} /> Re-index</button>
+        </div>
+      )}
+
+      {/* citations */}
+      {data.cites.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <SectionLabel icon="quote" text="Sources" />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 9 }}>
+            {data.cites.map(c => <CitePill key={c.id} cite={c} onOpen={onOpenCite} />)}
+          </div>
+        </div>
+      )}
+
+      {/* meta row: confidence + related */}
+      <div style={{
+        marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)",
+        display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".4px" }}>Confidence</span>
+          <Confidence value={data.confidence} />
+        </div>
+        {data.related.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".4px" }}>Related</span>
+            {data.related.map(r => (
+              <span key={r} style={{
+                display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600,
+                color: "var(--ink-2)", padding: "3px 8px", borderRadius: 7, background: "var(--hover)",
+              }}><Icons.doc size={12} /> {r}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* tool calls collapsed */}
+      <ToolCalls tools={tools} states={states} collapsed />
+
+      {/* follow-ups */}
+      {data.followups.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <SectionLabel icon="spark" text="Follow-up" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 9 }}>
+            {data.followups.map(f => (
+              <button key={f} onClick={() => onFollowup(f)} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                textAlign: "left", padding: "10px 13px", borderRadius: 10,
+                border: "1px solid var(--border)", background: "var(--white)",
+                fontSize: 13, fontWeight: 600, color: "var(--ink)", transition: ".12s",
+              }} onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--red-tint-2)"; e.currentTarget.style.background = "var(--red-tint)"; }}
+                 onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--white)"; }}>
+                {f} <Icons.arrowR size={15} style={{ color: "var(--red)", flex: "0 0 auto" }} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionLabel({ icon, text }) {
+  const Icon = Icons[icon];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".5px" }}>
+      <Icon size={13} style={{ color: "var(--red)" }} /> {text}
+    </div>
+  );
+}
+
+Object.assign(window, { CitePill, ToolCalls, AnswerCard, SectionLabel });
+
+
+=== 7522cbb9-9370-40a6-8777-7dc246816b79 (9279 chars) ===
+// data.jsx — realistic mock data + answer library
+
+// ---- File-type visual config ----
+const FILE_TYPES = {
+  pdf:  { label: "PDF",  color: "#d6322b", bg: "#fbe9e8" },
+  docx: { label: "DOCX", color: "#2b5fb0", bg: "#e8eefa" },
+  xlsx: { label: "XLSX", color: "#1f8a5b", bg: "#e7f4ec" },
+  md:   { label: "MD",   color: "#5b5b58", bg: "#eeece6" },
+  txt:  { label: "TXT",  color: "#8b8b83", bg: "#efeee9" },
+};
+
+// ---- Knowledge base documents ----
+const DOCUMENTS = [
+  { id: "d1", name: "Employee Handbook",          type: "pdf",  cat: "HR Policies",     owner: "Dana Whitfield", ownerInit: "DW", updated: "May 28, 2026", size: "4.2 MB", pages: 86, status: "indexed",   chunks: 142, access: "All employees" },
+  { id: "d2", name: "Compliance Policy",          type: "docx", cat: "Compliance",      owner: "Marcus Reed",    ownerInit: "MR", updated: "May 21, 2026", size: "1.1 MB", pages: 24, status: "indexed",   chunks: 58,  access: "All employees" },
+  { id: "d3", name: "IT Security Guidelines",     type: "pdf",  cat: "IT & Security",   owner: "Priya Nair",     ownerInit: "PN", updated: "Jun 02, 2026", size: "2.8 MB", pages: 41, status: "indexed",   chunks: 96,  access: "All employees" },
+  { id: "d4", name: "Customer Support SOP",       type: "pdf",  cat: "Operations",      owner: "Lena Fischer",   ownerInit: "LF", updated: "Apr 30, 2026", size: "3.0 MB", pages: 33, status: "review",    chunks: 0,   access: "Support team" },
+  { id: "d5", name: "Finance Procedures",         type: "xlsx", cat: "Finance",         owner: "Tomás Oliveira", ownerInit: "TO", updated: "May 16, 2026", size: "640 KB", pages: 12, status: "indexed",   chunks: 31,  access: "Finance, Managers" },
+  { id: "d6", name: "HR Leave Policy",            type: "pdf",  cat: "HR Policies",     owner: "Dana Whitfield", ownerInit: "DW", updated: "May 09, 2026", size: "820 KB", pages: 9,  status: "indexed",   chunks: 27,  access: "All employees" },
+  { id: "d7", name: "Onboarding Guide 2026",      type: "docx", cat: "HR Policies",     owner: "Dana Whitfield", ownerInit: "DW", updated: "Jun 03, 2026", size: "1.6 MB", pages: 28, status: "processing",chunks: 0,   access: "All employees" },
+  { id: "d8", name: "Data Retention Standard",    type: "md",   cat: "Compliance",      owner: "Marcus Reed",    ownerInit: "MR", updated: "Mar 18, 2026", size: "62 KB",  pages: 6,  status: "indexed",   chunks: 14,  access: "Legal, IT" },
+];
+
+const CATEGORIES = [
+  { name: "HR Policies",   count: 38 },
+  { name: "Compliance",    count: 21 },
+  { name: "IT & Security", count: 19 },
+  { name: "Operations",    count: 17 },
+  { name: "Finance",       count: 14 },
+  { name: "Product",       count: 9  },
+  { name: "Legal",         count: 4  },
+  { name: "Onboarding",    count: 2  },
+];
+
+// ---- Chat history ----
+const CHATS = [
+  { id: "c1", title: "Leave policy questions",     when: "Today" },
+  { id: "c2", title: "IT security requirements",   when: "Today" },
+  { id: "c3", title: "Compliance procedure summary", when: "Yesterday" },
+  { id: "c4", title: "Finance approval workflow",  when: "Jun 3" },
+  { id: "c5", title: "Onboarding process changes", when: "May 30" },
+];
+
+// ---- Suggested prompts ----
+const PROMPTS = [
+  { q: "Summarize the employee leave policy",                 key: "leave" },
+  { q: "What is the approval process for finance requests?",  key: "finance" },
+  { q: "What are the IT password requirements?",              key: "password" },
+  { q: "Which document mentions customer complaint handling?", key: "complaint" },
+];
+
+// ---- Tool-call sequences shown during "thinking" ----
+const TOOLBASE = [
+  { id: "search",   label: "Searching document index",    detail: "semantic + keyword", icon: "search",   ms: 850 },
+  { id: "meta",     label: "Fetching document metadata",  detail: "8 candidates",       icon: "database", ms: 700 },
+  { id: "rank",     label: "Ranking relevant chunks",     detail: "top 5 of 142",       icon: "layers",   ms: 900 },
+  { id: "gen",      label: "Generating grounded answer",  detail: "with citations",     icon: "spark",    ms: 1100 },
+];
+
+// ---- Answer library ----
+const ANSWERS = {
+  leave: {
+    confidence: 96,
+    answer: [
+      "Employees accrue **20 days of paid annual leave** per calendar year, accrued monthly. Requests must be submitted through the HR portal **at least 7 days before** the intended start date.",
+      "**Manager approval is required first**, followed by final confirmation from HR. Unused leave of up to **5 days** may be carried into the next year; anything beyond that expires on March 31.",
+    ],
+    cites: [
+      { id: 1, doc: "HR Leave Policy", type: "pdf", ref: "Page 3", conf: 96, snippet: "Annual leave requests must be submitted via the HR portal no fewer than seven (7) calendar days prior to the requested start date." },
+      { id: 2, doc: "Employee Handbook", type: "pdf", ref: "Section 4.2", conf: 91, snippet: "Manager approval is required before HR issues final confirmation of any leave request." },
+    ],
+    related: ["Employee Handbook", "Onboarding Guide 2026"],
+    followups: ["How is carry-over leave calculated?", "What about sick leave and parental leave?", "Who approves leave when my manager is away?"],
+    searched: ["HR Leave Policy", "Employee Handbook", "Compliance Policy", "Onboarding Guide 2026"],
+  },
+  finance: {
+    confidence: 89,
+    answer: [
+      "Finance requests follow a **tiered approval** model. Expenses **under €1,000** require only line-manager approval. Requests **€1,000–€10,000** also need Finance Business Partner sign-off, and anything **above €10,000** escalates to the CFO.",
+      "All requests are raised in the procurement system with a cost-center code and supporting documentation attached before routing.",
+    ],
+    cites: [
+      { id: 1, doc: "Finance Procedures", type: "xlsx", ref: "Tab: Approval Matrix", conf: 92, snippet: "Tier 2 (€1,000–€10,000): Line Manager + Finance Business Partner. Tier 3 (>€10,000): + CFO." },
+      { id: 2, doc: "Compliance Policy", type: "docx", ref: "Section 7.1", conf: 84, snippet: "Supporting documentation must accompany every procurement request prior to approval routing." },
+    ],
+    related: ["Compliance Policy", "Employee Handbook"],
+    followups: ["What counts as supporting documentation?", "How long does CFO approval usually take?", "Can approvals be delegated?"],
+    searched: ["Finance Procedures", "Compliance Policy", "Employee Handbook"],
+  },
+  password: {
+    confidence: 94,
+    answer: [
+      "Passwords must be **at least 14 characters** and include upper- and lower-case letters, a number, and a symbol. They **expire every 90 days** and cannot reuse any of the last 8 passwords.",
+      "**Multi-factor authentication (MFA) is mandatory** for all systems handling customer or financial data. Accounts lock after 5 failed attempts.",
+    ],
+    cites: [
+      { id: 1, doc: "IT Security Guidelines", type: "pdf", ref: "Page 12", conf: 95, snippet: "Minimum password length is fourteen (14) characters with complexity across four character classes; rotation every 90 days." },
+      { id: 2, doc: "IT Security Guidelines", type: "pdf", ref: "Page 14", conf: 90, snippet: "MFA is required for all systems processing customer or financial data without exception." },
+    ],
+    related: ["Data Retention Standard", "Compliance Policy"],
+    followups: ["How do I set up MFA?", "What is the password manager policy?", "Who do I contact if I'm locked out?"],
+    searched: ["IT Security Guidelines", "Data Retention Standard", "Compliance Policy"],
+  },
+  // No-answer scenario
+  complaint: {
+    confidence: 0,
+    noAnswer: true,
+    answer: [
+      "I couldn't find enough information in the available documents to answer this confidently. The **Customer Support SOP** is the most likely source, but it is currently marked **Needs Review** and has not been indexed yet.",
+    ],
+    cites: [],
+    related: ["Customer Support SOP"],
+    followups: ["Re-index the Customer Support SOP", "Search the Employee Handbook instead", "Notify the document owner"],
+    searched: ["Employee Handbook", "Compliance Policy", "Operations"],
+    missingDoc: { name: "Customer Support SOP", type: "pdf", status: "review", owner: "Lena Fischer" },
+  },
+};
+
+// Fallback for free-typed questions that don't match
+const FALLBACK = {
+  confidence: 0,
+  noAnswer: true,
+  answer: [
+    "I couldn't find enough information in the available documents. Try rephrasing your question, or upload a relevant document to the knowledge base.",
+  ],
+  cites: [],
+  related: [],
+  followups: ["Summarize the employee leave policy", "What are the IT password requirements?"],
+  searched: ["Employee Handbook", "Compliance Policy", "IT Security Guidelines"],
+};
+
+function matchAnswer(text) {
+  const t = text.toLowerCase();
+  if (/leave|vacation|holiday|time off|pto/.test(t)) return { ...ANSWERS.leave };
+  if (/financ|approv|expense|procure|budget|cost/.test(t)) return { ...ANSWERS.finance };
+  if (/password|mfa|security|login|credential/.test(t)) return { ...ANSWERS.password };
+  if (/complaint|support|customer/.test(t)) return { ...ANSWERS.complaint };
+  return { ...FALLBACK };
+}
+
+Object.assign(window, {
+  FILE_TYPES, DOCUMENTS, CATEGORIES, CHATS, PROMPTS, TOOLBASE, ANSWERS, matchAnswer,
+});
+
+
+=== a2500f3a-7c41-4322-86e7-7d7df09295c0 (13130 chars) ===
+// knowledgebase.jsx — SharePoint-inspired document library
+const { useState, useRef, useEffect } = React;
+
+function KnowledgeBase({ docs, addDoc, navigate, openEmpty }) {
+  const [query, setQuery] = useState("");
+  const [cat, setCat] = useState("All categories");
+  const [ftype, setFtype] = useState("All types");
+  const [modal, setModal] = useState(false);
+  const [menuFor, setMenuFor] = useState(null);
+  const [emptyDemo, setEmptyDemo] = useState(false);
+
+  const cats = ["All categories", ...new Set(docs.map(d => d.cat))];
+  const types = ["All types", "PDF", "DOCX", "XLSX", "MD"];
+
+  let list = docs.filter(d =>
+    (cat === "All categories" || d.cat === cat) &&
+    (ftype === "All types" || d.type.toUpperCase() === ftype) &&
+    (query === "" || d.name.toLowerCase().includes(query.toLowerCase()))
+  );
+  if (emptyDemo) list = [];
+
+  const indexed = docs.filter(d => d.status === "indexed").length;
+  const processing = docs.filter(d => d.status === "processing").length;
+
+  return (
+    <div style={{ height: "100%", overflowY: "auto", background: "var(--bg)" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "26px 30px 60px" }}>
+
+        {/* Breadcrumb */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--ink-3)", fontWeight: 600 }}>
+          <span onClick={() => navigate("home")} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}
+                onMouseEnter={e=>e.currentTarget.style.color="var(--ink)"} onMouseLeave={e=>e.currentTarget.style.color=""}>
+            <Icons.home size={14} /> Home
+          </span>
+          <Icons.chevR size={13} style={{ opacity: .6 }} />
+          <span style={{ color: "var(--ink)" }}>Knowledge Base</span>
+        </div>
+
+        {/* Title row */}
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, margin: "14px 0 22px" }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, letterSpacing: "-.8px", whiteSpace: "nowrap" }}>Knowledge Base</h1>
+            <p style={{ margin: "6px 0 0", fontSize: 14, color: "var(--ink-2)" }}>
+              {docs.length} documents · <span style={{ color: "var(--green)", fontWeight: 600 }}>{indexed} indexed</span>
+              {processing > 0 && <> · <span style={{ color: "var(--amber)", fontWeight: 600 }}>{processing} processing</span></>}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 9 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEmptyDemo(e => !e)}
+                    title="Toggle empty-state demo">
+              <Icons.eye size={15} /> {emptyDemo ? "Show docs" : "Empty state"}
+            </button>
+            <button className="btn btn-primary" onClick={() => setModal(true)}>
+              <Icons.plus size={16} sw={2.2} /> Add Document
+            </button>
+          </div>
+        </div>
+
+        {/* Search + filters */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={{ position: "relative", flex: "1 1 280px", minWidth: 220 }}>
+            <Icons.search size={17} style={{ position: "absolute", left: 13, top: 11.5, color: "var(--ink-3)" }} />
+            <input value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Search documents…"
+              style={{
+                width: "100%", height: 40, padding: "0 14px 0 38px",
+                borderRadius: 10, border: "1px solid var(--border-2)", background: "var(--white)",
+                fontSize: 14, outline: "none", boxShadow: "var(--sh-xs)",
+              }}
+              onFocus={e => e.target.style.borderColor = "var(--red)"}
+              onBlur={e => e.target.style.borderColor = "var(--border-2)"} />
+          </div>
+          <Dropdown value={cat} options={cats} onChange={setCat} icon="folder" />
+          <Dropdown value={ftype} options={types} onChange={setFtype} icon="doc" />
+          <Dropdown value="Any date" options={["Any date", "Last 7 days", "Last 30 days", "This year"]} onChange={()=>{}} icon="clock" />
+          <Dropdown value="All owners" options={["All owners","Dana Whitfield","Marcus Reed","Priya Nair"]} onChange={()=>{}} icon="settings" />
+        </div>
+
+        {/* Table */}
+        {list.length === 0
+          ? <EmptyState empty={emptyDemo} onAdd={() => setModal(true)} />
+          : <DocTable list={list} menuFor={menuFor} setMenuFor={setMenuFor} />}
+      </div>
+
+      {modal && <UploadModal onClose={() => setModal(false)} onUpload={addDoc} />}
+    </div>
+  );
+}
+
+// ---- Filter dropdown ----
+function Dropdown({ value, options, onChange, icon }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const Icon = Icons[icon];
+  const active = !value.startsWith("All") && value !== "Any date";
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        height: 40, padding: "0 12px", display: "flex", alignItems: "center", gap: 8,
+        borderRadius: 10, border: "1px solid " + (active ? "var(--red-tint-2)" : "var(--border-2)"),
+        background: active ? "var(--red-tint)" : "var(--white)", color: active ? "var(--red-700)" : "var(--ink-2)",
+        fontSize: 13, fontWeight: 600, boxShadow: "var(--sh-xs)", whiteSpace: "nowrap",
+      }}>
+        <Icon size={15} /> {value} <Icons.chevD size={14} style={{ opacity: .6 }} />
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: 46, left: 0, minWidth: 180, zIndex: 30,
+          background: "var(--white)", border: "1px solid var(--border)", borderRadius: 12,
+          boxShadow: "var(--sh-lg)", padding: 6, animation: "pop .14s ease-out",
+        }}>
+          {options.map(o => (
+            <button key={o} onClick={() => { onChange(o); setOpen(false); }} style={{
+              width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 8,
+              border: "none", background: o === value ? "var(--hover)" : "transparent",
+              fontSize: 13, fontWeight: 600, color: "var(--ink)",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+            }} onMouseEnter={e=>e.currentTarget.style.background="var(--hover)"}
+               onMouseLeave={e=>e.currentTarget.style.background=o===value?"var(--hover)":"transparent"}>
+              {o} {o === value && <Icons.check size={15} style={{ color: "var(--red)" }} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Document table ----
+function DocTable({ list, menuFor, setMenuFor }) {
+  const cols = "minmax(220px,2.4fr) 86px 1.3fr 1.3fr 1fr 1.2fr 44px";
+  return (
+    <div className="card" style={{ overflow: "visible", boxShadow: "var(--sh-sm)" }}>
+      <div style={{
+        display: "grid", gridTemplateColumns: cols, gap: 12, padding: "12px 18px",
+        borderBottom: "1px solid var(--border)", fontSize: 11.5, fontWeight: 700,
+        color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: ".5px",
+      }}>
+        <div>File name</div><div>Type</div><div>Category</div><div>Uploaded by</div>
+        <div>Last updated</div><div>Status</div><div></div>
+      </div>
+      {list.map((d, i) => (
+        <div key={d.id} style={{
+          display: "grid", gridTemplateColumns: cols, gap: 12, padding: "13px 18px",
+          alignItems: "center", borderBottom: i < list.length - 1 ? "1px solid var(--border)" : "none",
+          fontSize: 13.5, transition: ".12s", position: "relative",
+          animation: d.isNew ? "fadeUp .4s both" : "none",
+          background: d.isNew ? "var(--sand-2)" : "transparent",
+        }} onMouseEnter={e => e.currentTarget.style.background = "var(--hover)"}
+           onMouseLeave={e => e.currentTarget.style.background = d.isNew ? "var(--sand-2)" : "transparent"}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <FileChip type={d.type} size={34} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {d.name}.{d.type}
+              </div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 1 }}>
+                {d.size} · {d.pages} pp{d.chunks ? ` · ${d.chunks} chunks` : ""}
+              </div>
+            </div>
+          </div>
+          <div className="mono" style={{ fontSize: 12, color: "var(--ink-2)", textTransform: "uppercase" }}>{d.type}</div>
+          <div style={{ color: "var(--ink-2)" }}>{d.cat}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{
+              width: 24, height: 24, borderRadius: "50%", flex: "0 0 auto",
+              background: "var(--sand)", color: "var(--ink-2)", fontSize: 10, fontWeight: 700,
+              display: "grid", placeItems: "center",
+            }}>{d.ownerInit}</span>
+            <span style={{ color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.owner}</span>
+          </div>
+          <div className="mono" style={{ fontSize: 12, color: "var(--ink-2)" }}>{d.updated}</div>
+          <div><StatusBadge status={d.status} /></div>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setMenuFor(menuFor === d.id ? null : d.id)} style={{
+              width: 30, height: 30, borderRadius: 8, border: "none", background: "transparent",
+              color: "var(--ink-3)", display: "grid", placeItems: "center",
+            }} onMouseEnter={e=>e.currentTarget.style.background="var(--white)"}
+               onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <Icons.dots size={18} />
+            </button>
+            {menuFor === d.id && <RowMenu onClose={() => setMenuFor(null)} />}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RowMenu({ onClose }) {
+  const ref = useRef();
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const items = [
+    { label: "View", icon: "eye" }, { label: "Replace", icon: "swap" },
+    { label: "Re-index", icon: "refresh" }, { label: "Delete", icon: "trash", danger: true },
+  ];
+  return (
+    <div ref={ref} style={{
+      position: "absolute", top: 34, right: 0, width: 168, zIndex: 30,
+      background: "var(--white)", border: "1px solid var(--border)", borderRadius: 11,
+      boxShadow: "var(--sh-lg)", padding: 6, animation: "pop .13s ease-out",
+    }}>
+      {items.map(it => {
+        const Icon = Icons[it.icon];
+        return (
+          <button key={it.label} onClick={onClose} style={{
+            width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 8,
+            border: "none", background: "transparent", fontSize: 13, fontWeight: 600,
+            color: it.danger ? "var(--red)" : "var(--ink)",
+            display: "flex", alignItems: "center", gap: 10,
+          }} onMouseEnter={e=>e.currentTarget.style.background = it.danger ? "var(--red-tint)" : "var(--hover)"}
+             onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            <Icon size={15} /> {it.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---- Empty state ----
+function EmptyState({ empty, onAdd }) {
+  return (
+    <div className="card" style={{
+      padding: "64px 30px", textAlign: "center", boxShadow: "var(--sh-sm)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+    }}>
+      <div style={{
+        width: 66, height: 66, borderRadius: 18, background: "var(--sand)",
+        display: "grid", placeItems: "center", color: "var(--red)", marginBottom: 18,
+      }}>
+        <Icons.folder size={32} sw={1.5} />
+      </div>
+      <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700 }}>
+        {empty ? "No documents yet" : "No documents match your filters"}
+      </h3>
+      <p style={{ margin: "8px 0 20px", fontSize: 14, color: "var(--ink-2)", maxWidth: 380, lineHeight: 1.5 }}>
+        {empty
+          ? "Upload your first document to start building the knowledge base. Documentabot can only answer from indexed files."
+          : "Try clearing a filter or searching for a different term."}
+      </p>
+      {empty && <button className="btn btn-primary" onClick={onAdd}><Icons.upload size={16} /> Upload Document</button>}
+      {empty && (
+        <div style={{ marginTop: 22, fontSize: 12, color: "var(--ink-4)", fontWeight: 600 }}>
+          Supported: PDF · DOCX · Markdown · TXT · XLSX
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.KnowledgeBase = KnowledgeBase;
+
+
+=== 62436d6a-a051-4f4d-80ae-5668f6a4d38b (13457 chars) ===
+// chatbot.jsx — main chat orchestration (3-column)
+const { useState, useRef, useEffect } = React;
+function Chatbot() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [activeChat, setActiveChat] = useState("c1");
+  const [busy, setBusy] = useState(false);
+  const [citePanel, setCitePanel] = useState(null);
+  const scrollRef = useRef();
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  function newChat() {
+    setMessages([]); setCitePanel(null); setActiveChat(null);
+  }
+
+  function send(text) {
+    if (!text.trim() || busy) return;
+    setInput("");
+    setBusy(true);
+    const data = matchAnswer(text);
+    const tools = data.noAnswer ? TOOLBASE.slice(0, 3) : TOOLBASE;
+    const aId = "a" + Date.now();
+
+    setMessages(m => [
+      ...m,
+      { role: "user", text },
+      { role: "assistant", id: aId, status: "thinking", data, tools, states: tools.map(() => "pending") },
+    ]);
+
+    // animate tool steps sequentially
+    let acc = 0;
+    tools.forEach((t, i) => {
+      // start running
+      setTimeout(() => {
+        setMessages(m => m.map(msg => msg.id === aId
+          ? { ...msg, states: msg.states.map((s, j) => j === i ? "running" : s) } : msg));
+      }, acc);
+      acc += t.ms;
+      // mark done
+      setTimeout(() => {
+        setMessages(m => m.map(msg => msg.id === aId
+          ? { ...msg, states: msg.states.map((s, j) => j === i ? "done" : s) } : msg));
+      }, acc);
+    });
+    // reveal answer
+    setTimeout(() => {
+      setMessages(m => m.map(msg => msg.id === aId ? { ...msg, status: "done" } : msg));
+      setBusy(false);
+    }, acc + 280);
+  }
+
+  function openCite(cite) {
+    // attach searched-docs list from the owning answer
+    const owner = messages.find(m => m.role === "assistant" && m.data.cites?.some(c => c.id === cite.id && c.doc === cite.doc));
+    setCitePanel({ cite, searched: owner ? owner.data.searched : [cite.doc] });
+  }
+
+  return (
+    <div style={{ display: "flex", height: "100%", background: "var(--bg)" }}>
+      {/* ---- left: chat history ---- */}
+      <ChatSidebar active={activeChat} setActive={(id)=>{setActiveChat(id); setMessages([]); setCitePanel(null);}} onNew={newChat} />
+
+      {/* ---- center: conversation ---- */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {/* header */}
+        <div style={{ padding: "13px 22px", borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,.7)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: "var(--red)", display: "grid", placeItems: "center", color: "#fff", boxShadow: "0 3px 9px rgba(233,0,48,.3)" }}>
+            <Icons.chat size={20} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15.5, fontWeight: 700, letterSpacing: "-.2px", display: "flex", alignItems: "center", gap: 8 }}>
+              Documentabot
+              <span className="badge badge-green" style={{ height: 19, padding: "0 7px", fontSize: 10.5 }}><span className="dot" /> Online</span>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--ink-3)" }}>Answers are generated from indexed Benefit documents</div>
+          </div>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-4)", display: "flex", alignItems: "center", gap: 5 }}>
+            <Icons.database size={13} /> 124 docs · 8 collections
+          </span>
+        </div>
+
+        {/* messages */}
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "26px 0" }}>
+          <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 24px" }}>
+            {messages.length === 0
+              ? <Welcome onPrompt={send} />
+              : messages.map((m, i) =>
+                  m.role === "user"
+                    ? <UserMsg key={i} text={m.text} />
+                    : <AssistantMsg key={m.id} msg={m} onOpenCite={openCite} onFollowup={send} />)}
+          </div>
+        </div>
+
+        {/* input */}
+        <Composer input={input} setInput={setInput} onSend={() => send(input)} busy={busy} />
+      </div>
+
+      {/* ---- right: citation preview ---- */}
+      {citePanel && <CitationPanel cite={citePanel.cite} searched={citePanel.searched} onClose={() => setCitePanel(null)} />}
+    </div>
+  );
+}
+
+// ---- Sidebar ----
+function ChatSidebar({ active, setActive, onNew }) {
+  const groups = {};
+  CHATS.forEach(c => { (groups[c.when] = groups[c.when] || []).push(c); });
+  return (
+    <div style={{ width: 256, flex: "0 0 256px", borderRight: "1px solid var(--border)", background: "var(--white)", display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ padding: 14 }}>
+        <button className="btn btn-primary" style={{ width: "100%" }} onClick={onNew}>
+          <Icons.plus size={16} sw={2.2} /> New Chat
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 10px 14px" }}>
+        {Object.entries(groups).map(([when, items]) => (
+          <div key={when} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-4)", textTransform: "uppercase", letterSpacing: ".5px", padding: "8px 10px 5px" }}>{when}</div>
+            {items.map(c => {
+              const on = c.id === active;
+              return (
+                <button key={c.id} onClick={() => setActive(c.id)} style={{
+                  width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: 9, marginBottom: 2,
+                  border: "none", background: on ? "var(--red-tint)" : "transparent",
+                  color: on ? "var(--red-700)" : "var(--ink-2)", fontSize: 13, fontWeight: 600,
+                  display: "flex", alignItems: "center", gap: 9, transition: ".12s",
+                  borderLeft: on ? "2px solid var(--red)" : "2px solid transparent",
+                }} onMouseEnter={e => { if (!on) e.currentTarget.style.background = "var(--hover)"; }}
+                   onMouseLeave={e => { if (!on) e.currentTarget.style.background = "transparent"; }}>
+                  <Icons.chat size={15} style={{ flex: "0 0 auto", opacity: on ? 1 : .6 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: 13, borderTop: "1px solid var(--border)", fontSize: 11.5, color: "var(--ink-3)", display: "flex", alignItems: "center", gap: 8, lineHeight: 1.4 }}>
+        <Icons.shield size={15} style={{ flex: "0 0 auto", color: "var(--green)" }} />
+        Conversations stay within your workspace
+      </div>
+    </div>
+  );
+}
+
+// ---- Welcome / empty state ----
+function Welcome({ onPrompt }) {
+  return (
+    <div style={{ paddingTop: 26, animation: "fadeUp .4s both" }}>
+      <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--red)", display: "grid", placeItems: "center", color: "#fff", boxShadow: "0 6px 18px rgba(233,0,48,.3)", marginBottom: 18 }}>
+        <Icons.chat size={28} />
+      </div>
+      <h2 style={{ margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: "-.6px" }}>Ask a question about your documentation</h2>
+      <p style={{ margin: "9px 0 0", fontSize: 14.5, color: "var(--ink-2)", lineHeight: 1.55, maxWidth: 520 }}>
+        Documentabot searches your indexed Benefit documents and answers with citations you can verify. Try one of these:
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11, marginTop: 22 }}>
+        {PROMPTS.map((p, i) => (
+          <button key={i} onClick={() => onPrompt(p.q)} style={{
+            textAlign: "left", padding: "14px 15px", borderRadius: 13,
+            border: "1px solid var(--border)", background: "var(--white)", boxShadow: "var(--sh-xs)",
+            display: "flex", alignItems: "flex-start", gap: 11, transition: ".14s", cursor: "pointer",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--red-tint-2)"; e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--sh-sm)"; }}
+             onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "var(--sh-xs)"; }}>
+            <span style={{ width: 30, height: 30, borderRadius: 9, flex: "0 0 auto", background: "var(--sand)", color: "var(--red)", display: "grid", placeItems: "center" }}>
+              <Icons.search size={15} />
+            </span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", lineHeight: 1.4 }}>{p.q}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ marginTop: 20, fontSize: 12, color: "var(--ink-4)", fontWeight: 600, display: "flex", alignItems: "center", gap: 7 }}>
+        <Icons.shield size={14} /> Documentabot only answers using indexed knowledge base documents.
+      </div>
+    </div>
+  );
+}
+
+// ---- User message ----
+function UserMsg({ text }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 22, animation: "fadeUp .25s both" }}>
+      <div style={{
+        maxWidth: "78%", background: "var(--red)", color: "#fff", padding: "11px 16px",
+        borderRadius: "16px 16px 5px 16px", fontSize: 14.5, lineHeight: 1.5, fontWeight: 500,
+        boxShadow: "0 3px 10px rgba(233,0,48,.22)",
+      }}>{text}</div>
+    </div>
+  );
+}
+
+// ---- Assistant message ----
+function AssistantMsg({ msg, onOpenCite, onFollowup }) {
+  const thinking = msg.status === "thinking";
+  return (
+    <div style={{ display: "flex", gap: 13, marginBottom: 26 }}>
+      <div style={{ width: 34, height: 34, borderRadius: 10, flex: "0 0 auto", background: "var(--sand)", border: "1px solid var(--sand-line)", display: "grid", placeItems: "center", color: "var(--red)", marginTop: 2 }}>
+        <Icons.chat size={17} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="card" style={{ padding: "17px 18px", boxShadow: "var(--sh-sm)", borderRadius: "5px 16px 16px 16px" }}>
+          {thinking ? (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 13, fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
+                <span style={{ display: "inline-flex", gap: 3 }}>
+                  <Dot d={0} /><Dot d={.16} /><Dot d={.32} />
+                </span>
+                Searching documents…
+              </div>
+              <ToolCalls tools={msg.tools} states={msg.states} />
+            </div>
+          ) : (
+            <AnswerCard data={msg.data} tools={msg.tools} states={msg.states} onOpenCite={onOpenCite} onFollowup={onFollowup} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dot({ d }) {
+  return <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--red)", display: "inline-block", animation: `blink 1.2s ${d}s infinite` }} />;
+}
+
+// ---- Composer ----
+function Composer({ input, setInput, onSend, busy }) {
+  const ref = useRef();
+  return (
+    <div style={{ padding: "14px 24px 18px", borderTop: "1px solid var(--border)", background: "var(--white)" }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <div style={{
+          display: "flex", alignItems: "flex-end", gap: 8, padding: "8px 8px 8px 8px",
+          border: "1px solid var(--border-2)", borderRadius: 15, background: "var(--white)",
+          boxShadow: "var(--sh-xs)", transition: ".14s",
+        }}
+        onFocusCapture={e => e.currentTarget.style.borderColor = "var(--red)"}
+        onBlurCapture={e => e.currentTarget.style.borderColor = "var(--border-2)"}>
+          <button title="Attach (disabled in demo)" disabled style={{ width: 38, height: 38, borderRadius: 10, border: "none", background: "transparent", color: "var(--ink-4)", display: "grid", placeItems: "center", flex: "0 0 auto", cursor: "not-allowed" }}>
+            <Icons.paperclip size={18} />
+          </button>
+          <textarea ref={ref} value={input} rows={1}
+            onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
+            placeholder="Ask about policies, procedures, or documents…"
+            style={{ flex: 1, border: "none", outline: "none", resize: "none", fontSize: 14.5, lineHeight: 1.5, padding: "9px 4px", background: "transparent", maxHeight: 120 }} />
+          <button onClick={onSend} disabled={busy || !input.trim()} className="btn btn-primary" style={{ width: 40, height: 40, padding: 0, borderRadius: 11, flex: "0 0 auto" }}>
+            {busy ? <Icons.refresh size={17} className="spin" /> : <Icons.send size={17} />}
+          </button>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 9, fontSize: 11.5, color: "var(--ink-4)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <Icons.shield size={13} /> Documentabot only answers using indexed knowledge base documents.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+window.Chatbot = Chatbot;
+
+
+=== cdb4ec94-d294-470f-9f61-d19eccf88cd7 (109931 chars) ===
+/**
+ * @license React
+ * react.development.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+(function (global, factory) {
+  typeof exports === 'object' && typ...[LARGE FILE]...
+
+=== 19131fca-d17c-4624-975e-c72b16c02099 (1080205 chars) ===
+/**
+ * @license React
+ * react-dom.development.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+(function (global, factory) {
+  typeof exports === 'object' &&...[LARGE FILE]...
+
+=== f5ad97e3-9af2-4e15-8d90-3611e202843e (3137752 chars) ===
+!function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e="undefined"!=typeof globalThis?globalThis:e||self).Babel={})}(this,function(e){"use strict";var t=Object.freeze({__proto__:null,get _call(){return cO},get _...[LARGE FILE]...
