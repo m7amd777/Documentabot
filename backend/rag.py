@@ -39,6 +39,24 @@ def ingest_pdf(file_path: str):
 
 
 
+def delete_document_chunks(file_path: str):
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    vectorstore = Chroma(
+        persist_directory=CHROMA_DIR,
+        embedding_function=embeddings
+    )
+    vectorstore.delete(where={"source": file_path})
+
+
+def generate_chat_name(question: str) -> str:
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+    response = llm.invoke(
+        f"Generate a short chat title (4-6 words max) for a conversation starting with this question: '{question}'. "
+        "Return only the title, no quotes, no punctuation at the end."
+    )
+    return response.content.strip().strip('"').strip("'")
+
+
 def ask_question(question: str):
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 

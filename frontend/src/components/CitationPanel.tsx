@@ -58,12 +58,14 @@ export function CitationPanel({ cite, searched, onClose }: CitationPanelProps) {
           </div>
         </div>
 
+        {/* TODO: preview context actions — see TODO.md
         <button className="btn btn-primary" style={{ width: '100%', marginTop: 15 }}>
           <Icons.open size={16} /> Open document
         </button>
         <button className="btn btn-ghost" style={{ width: '100%', marginTop: 9 }}>
           <Icons.link size={15} /> Copy link to passage
         </button>
+        */}
 
         <div style={{ marginTop: 22 }}>
           <SectionLabel icon="search" text="Documents searched" />

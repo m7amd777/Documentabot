@@ -1,48 +1,93 @@
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Icons } from './Icons';
 import { FileChip, StatusBadge } from './Shared';
 import { UploadModal } from './UploadModal';
+import { documents } from '../api';
 import type { Doc } from '../types';
 
-type Screen = 'home' | 'kb' | 'chat';
-
-interface KnowledgeBaseProps {
-  docs: Doc[];
-  addDoc: (doc: Doc) => void;
-  navigate: (screen: Screen) => void;
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function KnowledgeBase({ docs, addDoc, navigate }: KnowledgeBaseProps) {
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+export function KnowledgeBase() {
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('All categories');
   const [ftype, setFtype] = useState('All types');
   const [modal, setModal] = useState(false);
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  const [emptyDemo, setEmptyDemo] = useState(false);
+  const [menuFor, setMenuFor] = useState<number | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<Doc | null>(null);
 
-  const cats = ['All categories', ...Array.from(new Set(docs.map(d => d.cat)))];
-  const types = ['All types', 'PDF', 'DOCX', 'XLSX', 'MD'];
+  async function fetchDocs() {
+    setLoading(true);
+    try {
+      const data = await documents.list();
+      setDocs(data);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  let list = docs.filter(d =>
-    (cat === 'All categories' || d.cat === cat) &&
-    (ftype === 'All types' || d.type.toUpperCase() === ftype) &&
+  useEffect(() => { fetchDocs(); }, []);
+
+  const cats = ['All categories', ...Array.from(new Set(docs.map(d => d.category).filter(Boolean) as string[]))];
+  const types = ['All types', 'PDF'];
+
+  const list = docs.filter(d =>
+    (cat === 'All categories' || d.category === cat) &&
+    (ftype === 'All types' || d.file_type.toUpperCase() === ftype) &&
     (query === '' || d.name.toLowerCase().includes(query.toLowerCase()))
   );
-  if (emptyDemo) list = [];
 
-  const indexed = docs.filter(d => d.status === 'indexed').length;
-  const processing = docs.filter(d => d.status === 'processing').length;
+  const active = docs.filter(d => d.status === 'active').length;
+
+  async function handleDelete(id: number) {
+    setMenuFor(null);
+    try {
+      await documents.delete(id);
+      setDocs(prev => prev.filter(d => d.id !== id));
+    } catch {
+      // no-op — could surface a toast later
+    }
+  }
+
+  function handleUploaded() {
+    fetchDocs();
+  }
+
+  function handleDownload(doc: Doc) {
+    setMenuFor(null);
+    const a = document.createElement('a');
+    a.href = `/api/documents/${doc.id}/download`;
+    a.download = doc.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  function handlePreview(doc: Doc) {
+    setMenuFor(null);
+    setPreviewDoc(doc);
+  }
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 1180, margin: '0 auto', padding: '26px 30px 60px' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--ink-3)', fontWeight: 600 }}>
-          <span onClick={() => navigate('home')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'inherit', textDecoration: 'none' }}
             onMouseEnter={e => (e.currentTarget.style.color = 'var(--ink)')}
             onMouseLeave={e => (e.currentTarget.style.color = '')}>
             <Icons.home size={14} /> Home
-          </span>
+          </Link>
           <Icons.chevR size={13} style={{ opacity: .6 }} />
           <span style={{ color: 'var(--ink)' }}>Knowledge Base</span>
         </div>
@@ -51,18 +96,12 @@ export function KnowledgeBase({ docs, addDoc, navigate }: KnowledgeBaseProps) {
           <div>
             <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, letterSpacing: '-.8px', whiteSpace: 'nowrap' }}>Knowledge Base</h1>
             <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--ink-2)' }}>
-              {docs.length} documents · <span style={{ color: 'var(--green)', fontWeight: 600 }}>{indexed} indexed</span>
-              {processing > 0 && <> · <span style={{ color: 'var(--amber)', fontWeight: 600 }}>{processing} processing</span></>}
+              {docs.length} documents · <span style={{ color: 'var(--green)', fontWeight: 600 }}>{active} active</span>
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 9 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => setEmptyDemo(e => !e)} title="Toggle empty-state demo">
-              <Icons.eye size={15} /> {emptyDemo ? 'Show docs' : 'Empty state'}
-            </button>
-            <button className="btn btn-primary" onClick={() => setModal(true)}>
-              <Icons.plus size={16} sw={2.2} /> Add Document
-            </button>
-          </div>
+          <button className="btn btn-primary" onClick={() => setModal(true)}>
+            <Icons.plus size={16} sw={2.2} /> Add Document
+          </button>
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -80,16 +119,30 @@ export function KnowledgeBase({ docs, addDoc, navigate }: KnowledgeBaseProps) {
           </div>
           <Dropdown value={cat} options={cats} onChange={setCat} icon="folder" />
           <Dropdown value={ftype} options={types} onChange={setFtype} icon="doc" />
-          <Dropdown value="Any date" options={['Any date', 'Last 7 days', 'Last 30 days', 'This year']} onChange={() => {}} icon="clock" />
-          <Dropdown value="All owners" options={['All owners', 'Dana Whitfield', 'Marcus Reed', 'Priya Nair']} onChange={() => {}} icon="settings" />
         </div>
 
-        {list.length === 0
-          ? <EmptyState empty={emptyDemo} onAdd={() => setModal(true)} />
-          : <DocTable list={list} menuFor={menuFor} setMenuFor={setMenuFor} />}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '70px 0', color: 'var(--ink-3)' }}>
+            <span className="spin" style={{ display: 'inline-flex' }}><Icons.refresh size={22} /></span>
+          </div>
+        ) : list.length === 0 ? (
+          <EmptyState filtered={query !== '' || cat !== 'All categories' || ftype !== 'All types'} onAdd={() => setModal(true)} />
+        ) : (
+          <DocTable
+            list={list}
+            menuFor={menuFor}
+            setMenuFor={setMenuFor}
+            onDelete={handleDelete}
+            onDownload={handleDownload}
+            onPreview={handlePreview}
+            formatSize={formatSize}
+            initials={initials}
+          />
+        )}
       </div>
 
-      {modal && <UploadModal onClose={() => setModal(false)} onUpload={addDoc} />}
+      {modal && <UploadModal onClose={() => setModal(false)} onUploaded={handleUploaded} />}
+      {previewDoc && <PdfPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
     </div>
   );
 }
@@ -110,7 +163,7 @@ function Dropdown({ value, options, onChange, icon }: DropdownProps) {
     return () => document.removeEventListener('mousedown', h);
   }, []);
   const Icon = Icons[icon];
-  const active = !value.startsWith('All') && value !== 'Any date';
+  const active = !value.startsWith('All');
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen(o => !o)} style={{
@@ -147,12 +200,17 @@ function Dropdown({ value, options, onChange, icon }: DropdownProps) {
 
 interface DocTableProps {
   list: Doc[];
-  menuFor: string | null;
-  setMenuFor: (id: string | null) => void;
+  menuFor: number | null;
+  setMenuFor: (id: number | null) => void;
+  onDelete: (id: number) => void;
+  onDownload: (doc: Doc) => void;
+  onPreview: (doc: Doc) => void;
+  formatSize: (bytes: number) => string;
+  initials: (name: string) => string;
 }
 
-function DocTable({ list, menuFor, setMenuFor }: DocTableProps) {
-  const cols = 'minmax(220px,2.4fr) 86px 1.3fr 1.3fr 1fr 1.2fr 44px';
+function DocTable({ list, menuFor, setMenuFor, onDelete, onDownload, onPreview, formatSize, initials }: DocTableProps) {
+  const cols = 'minmax(220px,2.4fr) 80px 1.4fr 1.6fr 1.2fr 44px';
   return (
     <div className="card" style={{ overflow: 'visible', boxShadow: 'var(--sh-sm)' }}>
       <div style={{
@@ -161,7 +219,7 @@ function DocTable({ list, menuFor, setMenuFor }: DocTableProps) {
         color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.5px',
       }}>
         <div>File name</div><div>Type</div><div>Category</div><div>Uploaded by</div>
-        <div>Last updated</div><div>Status</div><div></div>
+        <div>Status</div><div />
       </div>
       {list.map((d, i) => (
         <div key={d.id} style={{
@@ -174,27 +232,28 @@ function DocTable({ list, menuFor, setMenuFor }: DocTableProps) {
           onMouseEnter={e => (e.currentTarget.style.background = 'var(--hover)')}
           onMouseLeave={e => (e.currentTarget.style.background = d.isNew ? 'var(--sand-2)' : 'transparent')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-            <FileChip type={d.type} size={34} />
+            <FileChip type={d.file_type} size={34} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {d.name}.{d.type}
+                {d.name}
               </div>
               <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
-                {d.size} · {d.pages} pp{d.chunks ? ` · ${d.chunks} chunks` : ''}
+                {formatSize(d.file_size)}
+                {d.pages ? ` · ${d.pages} pp` : ''}
+                {d.chunks ? ` · ${d.chunks} chunks` : ''}
               </div>
             </div>
           </div>
-          <div className="mono" style={{ fontSize: 12, color: 'var(--ink-2)', textTransform: 'uppercase' }}>{d.type}</div>
-          <div style={{ color: 'var(--ink-2)' }}>{d.cat}</div>
+          <div className="mono" style={{ fontSize: 12, color: 'var(--ink-2)', textTransform: 'uppercase' }}>{d.file_type}</div>
+          <div style={{ color: 'var(--ink-2)' }}>{d.category ?? '—'}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{
               width: 24, height: 24, borderRadius: '50%', flex: '0 0 auto',
               background: 'var(--sand)', color: 'var(--ink-2)', fontSize: 10, fontWeight: 700,
               display: 'grid', placeItems: 'center',
-            }}>{d.ownerInit}</span>
-            <span style={{ color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.owner}</span>
+            }}>{initials(d.owner_name)}</span>
+            <span style={{ color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.owner_name}</span>
           </div>
-          <div className="mono" style={{ fontSize: 12, color: 'var(--ink-2)' }}>{d.updated}</div>
           <div><StatusBadge status={d.status} /></div>
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMenuFor(menuFor === d.id ? null : d.id)} style={{
@@ -205,7 +264,14 @@ function DocTable({ list, menuFor, setMenuFor }: DocTableProps) {
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
               <Icons.dots size={18} />
             </button>
-            {menuFor === d.id && <RowMenu onClose={() => setMenuFor(null)} />}
+            {menuFor === d.id && (
+              <RowMenu
+                onClose={() => setMenuFor(null)}
+                onPreview={() => onPreview(d)}
+                onDownload={() => onDownload(d)}
+                onDelete={() => onDelete(d.id)}
+              />
+            )}
           </div>
         </div>
       ))}
@@ -213,33 +279,42 @@ function DocTable({ list, menuFor, setMenuFor }: DocTableProps) {
   );
 }
 
-function RowMenu({ onClose }: { onClose: () => void }) {
+interface RowMenuProps {
+  onClose: () => void;
+  onPreview: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+}
+
+function RowMenu({ onClose, onPreview, onDownload, onDelete }: RowMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
-  const items = [
-    { label: 'View',     icon: 'eye' },
-    { label: 'Replace',  icon: 'swap' },
-    { label: 'Re-index', icon: 'refresh' },
-    { label: 'Delete',   icon: 'trash', danger: true },
+
+  const items: { label: string; icon: string; action: () => void; danger?: boolean }[] = [
+    { label: 'Preview',  icon: 'eye',      action: onPreview },
+    { label: 'Download', icon: 'download', action: onDownload },
+    { label: 'Delete',   icon: 'trash',    action: onDelete, danger: true },
   ];
+
   return (
     <div ref={ref} style={{
-      position: 'absolute', top: 34, right: 0, width: 168, zIndex: 30,
+      position: 'absolute', top: 34, right: 0, width: 160, zIndex: 30,
       background: 'var(--white)', border: '1px solid var(--border)', borderRadius: 11,
       boxShadow: 'var(--sh-lg)', padding: 6, animation: 'pop .13s ease-out',
     }}>
-      {items.map(it => {
+      {items.map((it, i) => {
         const Icon = Icons[it.icon];
         return (
-          <button key={it.label} onClick={onClose} style={{
+          <button key={it.label} onClick={it.action} style={{
             width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 8,
             border: 'none', background: 'transparent', fontSize: 13, fontWeight: 600,
             color: it.danger ? 'var(--red)' : 'var(--ink)',
             display: 'flex', alignItems: 'center', gap: 10,
+            marginTop: it.danger && i > 0 ? 2 : 0,
           }}
             onMouseEnter={e => (e.currentTarget.style.background = it.danger ? 'var(--red-tint)' : 'var(--hover)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
@@ -251,7 +326,69 @@ function RowMenu({ onClose }: { onClose: () => void }) {
   );
 }
 
-function EmptyState({ empty, onAdd }: { empty: boolean; onAdd: () => void }) {
+function PdfPreviewModal({ doc, onClose }: { doc: Doc; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 80,
+        background: 'rgba(15,15,15,.65)', backdropFilter: 'blur(4px)',
+        display: 'flex', flexDirection: 'column', padding: 28, animation: 'fadeIn .18s',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column',
+          background: 'var(--white)', borderRadius: 16, overflow: 'hidden',
+          boxShadow: 'var(--sh-lg)', animation: 'pop .2s ease-out',
+        }}
+      >
+        <div style={{
+          padding: '13px 18px', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 12, flex: '0 0 auto',
+        }}>
+          <Icons.doc size={18} style={{ color: 'var(--red)', flexShrink: 0 }} />
+          <span style={{ fontWeight: 700, fontSize: 14.5, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {doc.name}
+          </span>
+          <a
+            href={`/api/documents/${doc.id}/download`}
+            download={doc.name}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              height: 33, padding: '0 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+              background: 'var(--surface)', border: '1px solid var(--border-2)',
+              color: 'var(--ink-2)', textDecoration: 'none', boxShadow: 'var(--sh-xs)',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--hover)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'var(--surface)')}
+          >
+            <Icons.download size={14} /> Download
+          </a>
+          <button
+            onClick={onClose}
+            style={{
+              width: 33, height: 33, borderRadius: 8, border: 'none',
+              background: 'transparent', color: 'var(--ink-3)', display: 'grid', placeItems: 'center',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--hover)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <Icons.x size={18} />
+          </button>
+        </div>
+        <iframe
+          src={`/api/documents/${doc.id}/view`}
+          title={doc.name}
+          style={{ flex: 1, border: 'none', width: '100%', display: 'block' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ filtered, onAdd }: { filtered: boolean; onAdd: () => void }) {
   return (
     <div className="card" style={{
       padding: '64px 30px', textAlign: 'center', boxShadow: 'var(--sh-sm)',
@@ -264,17 +401,17 @@ function EmptyState({ empty, onAdd }: { empty: boolean; onAdd: () => void }) {
         <Icons.folder size={32} sw={1.5} />
       </div>
       <h3 style={{ margin: 0, fontSize: 19, fontWeight: 700 }}>
-        {empty ? 'No documents yet' : 'No documents match your filters'}
+        {filtered ? 'No documents match your filters' : 'No documents yet'}
       </h3>
       <p style={{ margin: '8px 0 20px', fontSize: 14, color: 'var(--ink-2)', maxWidth: 380, lineHeight: 1.5 }}>
-        {empty
-          ? 'Upload your first document to start building the knowledge base. Documentabot can only answer from indexed files.'
-          : 'Try clearing a filter or searching for a different term.'}
+        {filtered
+          ? 'Try clearing a filter or searching for a different term.'
+          : 'Upload your first document to start building the knowledge base.'}
       </p>
-      {empty && <button className="btn btn-primary" onClick={onAdd}><Icons.upload size={16} /> Upload Document</button>}
-      {empty && (
+      {!filtered && <button className="btn btn-primary" onClick={onAdd}><Icons.upload size={16} /> Upload Document</button>}
+      {!filtered && (
         <div style={{ marginTop: 22, fontSize: 12, color: 'var(--ink-4)', fontWeight: 600 }}>
-          Supported: PDF · DOCX · Markdown · TXT · XLSX
+          Supported: PDF
         </div>
       )}
     </div>

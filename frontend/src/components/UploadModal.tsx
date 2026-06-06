@@ -1,18 +1,11 @@
 import { useState, useRef, CSSProperties } from 'react';
 import { Icons } from './Icons';
 import { FileChip } from './Shared';
-import type { Doc } from '../types';
-
-interface FakeFile {
-  name: string;
-  type: string;
-  size: string;
-  pages: number;
-}
+import { documents, ApiError } from '../api';
 
 interface UploadModalProps {
   onClose: () => void;
-  onUpload: (doc: Doc) => void;
+  onUploaded: () => void;
 }
 
 const inp: CSSProperties = {
@@ -45,36 +38,45 @@ function Select({ value, onChange, options }: { value: string; onChange: (v: str
   );
 }
 
-export function UploadModal({ onClose, onUpload }: UploadModalProps) {
-  const [file, setFile] = useState<FakeFile | null>(null);
+function fileExt(filename: string) {
+  return filename.split('.').pop()?.toLowerCase() ?? 'pdf';
+}
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function UploadModal({ onClose, onUploaded }: UploadModalProps) {
+  const [file, setFile] = useState<File | null>(null);
   const [drag, setDrag] = useState(false);
-  const [title, setTitle] = useState('');
   const [cat, setCat] = useState('HR Policies');
-  const [access, setAccess] = useState('All employees');
-  const [desc, setDesc] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const FAKE: FakeFile = { name: 'Remote Work Policy 2026', type: 'pdf', size: '1.3 MB', pages: 18 };
-
-  function pick() {
-    setFile(FAKE);
-    if (!title) setTitle(FAKE.name);
+  function pick(f: File) {
+    setError('');
+    if (!f.name.toLowerCase().endsWith('.pdf')) {
+      setError('Only PDF files are supported.');
+      return;
+    }
+    setFile(f);
   }
 
-  function submit() {
+  async function submit() {
     if (!file) return;
     setUploading(true);
-    setTimeout(() => {
-      onUpload({
-        id: 'new' + Date.now(),
-        name: title || file.name, type: file.type, cat,
-        owner: 'You', ownerInit: 'YO', updated: 'Just now',
-        size: file.size, pages: file.pages, status: 'processing', chunks: 0,
-        access, isNew: true,
-      });
+    setError('');
+    try {
+      await documents.upload(file, cat);
+      onUploaded();
       onClose();
-    }, 900);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Upload failed.');
+      setUploading(false);
+    }
   }
 
   return (
@@ -100,10 +102,10 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
         <div style={{ padding: 22, maxHeight: '62vh', overflowY: 'auto' }}>
           {!file ? (
             <div
-              onClick={pick}
+              onClick={() => inputRef.current?.click()}
               onDragOver={e => { e.preventDefault(); setDrag(true); }}
               onDragLeave={() => setDrag(false)}
-              onDrop={e => { e.preventDefault(); setDrag(false); pick(); }}
+              onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) pick(f); }}
               style={{
                 border: '2px dashed ' + (drag ? 'var(--red)' : 'var(--border-2)'),
                 background: drag ? 'var(--red-tint)' : 'var(--sand-2)',
@@ -114,15 +116,21 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
               </div>
               <div style={{ fontSize: 14.5, fontWeight: 700 }}>Drag & drop a file here</div>
               <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 4 }}>or <span style={{ color: 'var(--red)', fontWeight: 700 }}>browse</span> from your computer</div>
-              <div className="mono" style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 12 }}>PDF · DOCX · MD · TXT · XLSX — max 50 MB</div>
-              <input ref={inputRef} type="file" style={{ display: 'none' }} />
+              <div className="mono" style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 12 }}>PDF — max 50 MB</div>
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".pdf"
+                style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) pick(f); }}
+              />
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 13, padding: 14, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--sand-2)' }}>
-              <FileChip type={file.type} size={40} />
+              <FileChip type={fileExt(file.name)} size={40} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{file.name}.{file.type}</div>
-                <div className="mono" style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>{file.size} · {file.pages} pages · ready to upload</div>
+                <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                <div className="mono" style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>{formatSize(file.size)} · ready to upload</div>
               </div>
               <button onClick={() => setFile(null)} className="btn-subtle" style={{ width: 30, height: 30, borderRadius: 8, border: 'none', color: 'var(--ink-3)' }}>
                 <Icons.x size={16} />
@@ -130,22 +138,11 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
             </div>
           )}
 
-          <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Field label="Document title">
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Remote Work Policy 2026" style={inp} />
-            </Field>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <Field label="Category">
-                <Select value={cat} onChange={setCat} options={['HR Policies', 'Compliance', 'IT & Security', 'Operations', 'Finance', 'Product', 'Legal']} />
-              </Field>
-              <Field label="Access level">
-                <Select value={access} onChange={setAccess} options={['All employees', 'Managers only', 'Finance, Managers', 'Support team', 'Legal, IT']} />
-              </Field>
-            </div>
-            <Field label="Description" optional>
-              <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2}
-                placeholder="Short summary to help colleagues find this document…"
-                style={{ ...inp, height: 'auto', padding: '10px 12px', resize: 'vertical', lineHeight: 1.5 }} />
+          {error && <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--red-700)', background: 'var(--red-tint)', border: '1px solid var(--red-tint-2)', borderRadius: 8, padding: '9px 12px' }}>{error}</p>}
+
+          <div style={{ marginTop: 18 }}>
+            <Field label="Category">
+              <Select value={cat} onChange={setCat} options={['HR Policies', 'Compliance', 'IT & Security', 'Operations', 'Finance', 'Product', 'Legal']} />
             </Field>
           </div>
         </div>

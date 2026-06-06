@@ -1,4 +1,4 @@
-import type { Doc, Category, Chat, Prompt, Tool, AnswerData, FileTypeConfig } from './types';
+import type { Category, Chat, Prompt, Tool, AnswerData, FileTypeConfig } from './types';
 
 export const FILE_TYPES: Record<string, FileTypeConfig> = {
   pdf:  { label: 'PDF',  color: '#d6322b', bg: '#fbe9e8' },
@@ -7,17 +7,6 @@ export const FILE_TYPES: Record<string, FileTypeConfig> = {
   md:   { label: 'MD',   color: '#5b5b58', bg: '#eeece6' },
   txt:  { label: 'TXT',  color: '#8b8b83', bg: '#efeee9' },
 };
-
-export const DOCUMENTS: Doc[] = [
-  { id: 'd1', name: 'Employee Handbook',       type: 'pdf',  cat: 'HR Policies',   owner: 'Dana Whitfield', ownerInit: 'DW', updated: 'May 28, 2026', size: '4.2 MB', pages: 86, status: 'indexed',    chunks: 142, access: 'All employees' },
-  { id: 'd2', name: 'Compliance Policy',       type: 'docx', cat: 'Compliance',    owner: 'Marcus Reed',    ownerInit: 'MR', updated: 'May 21, 2026', size: '1.1 MB', pages: 24, status: 'indexed',    chunks: 58,  access: 'All employees' },
-  { id: 'd3', name: 'IT Security Guidelines',  type: 'pdf',  cat: 'IT & Security', owner: 'Priya Nair',     ownerInit: 'PN', updated: 'Jun 02, 2026', size: '2.8 MB', pages: 41, status: 'indexed',    chunks: 96,  access: 'All employees' },
-  { id: 'd4', name: 'Customer Support SOP',    type: 'pdf',  cat: 'Operations',    owner: 'Lena Fischer',   ownerInit: 'LF', updated: 'Apr 30, 2026', size: '3.0 MB', pages: 33, status: 'review',     chunks: 0,   access: 'Support team' },
-  { id: 'd5', name: 'Finance Procedures',      type: 'xlsx', cat: 'Finance',       owner: 'Tomás Oliveira', ownerInit: 'TO', updated: 'May 16, 2026', size: '640 KB', pages: 12, status: 'indexed',    chunks: 31,  access: 'Finance, Managers' },
-  { id: 'd6', name: 'HR Leave Policy',         type: 'pdf',  cat: 'HR Policies',   owner: 'Dana Whitfield', ownerInit: 'DW', updated: 'May 09, 2026', size: '820 KB', pages: 9,  status: 'indexed',    chunks: 27,  access: 'All employees' },
-  { id: 'd7', name: 'Onboarding Guide 2026',   type: 'docx', cat: 'HR Policies',   owner: 'Dana Whitfield', ownerInit: 'DW', updated: 'Jun 03, 2026', size: '1.6 MB', pages: 28, status: 'processing', chunks: 0,   access: 'All employees' },
-  { id: 'd8', name: 'Data Retention Standard', type: 'md',   cat: 'Compliance',    owner: 'Marcus Reed',    ownerInit: 'MR', updated: 'Mar 18, 2026', size: '62 KB',  pages: 6,  status: 'indexed',    chunks: 14,  access: 'Legal, IT' },
-];
 
 export const CATEGORIES: Category[] = [
   { name: 'HR Policies',   count: 38 },

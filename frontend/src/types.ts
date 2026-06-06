@@ -1,16 +1,14 @@
 export interface Doc {
-  id: string;
+  id: number;
   name: string;
-  type: string;
-  cat: string;
-  owner: string;
-  ownerInit: string;
-  updated: string;
-  size: string;
-  pages: number;
-  status: 'indexed' | 'processing' | 'review' | 'failed';
-  chunks: number;
-  access: string;
+  file_type: string;
+  file_size: number;
+  pages: number | null;
+  chunks: number | null;
+  category: string | null;
+  owner_id: number;
+  owner_name: string;
+  status: 'active' | 'inactive';
   isNew?: boolean;
 }
 
@@ -49,13 +47,23 @@ export interface Tool {
   ms: number;
 }
 
+export interface Source {
+  file: string;
+  page: number;
+}
+
+export interface ToolDef {
+  id: string;
+  label: string;
+  icon: string;
+}
+
 export interface Message {
   role: 'user' | 'assistant';
   text?: string;
   id?: string;
   status?: 'thinking' | 'done';
-  data?: AnswerData;
-  tools?: Tool[];
+  sources?: Source[];
   states?: string[];
 }
 

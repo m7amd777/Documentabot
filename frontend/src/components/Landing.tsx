@@ -1,24 +1,19 @@
+import { useNavigate } from 'react-router-dom';
 import { Icons } from './Icons';
 
-type Screen = 'home' | 'kb' | 'chat';
+export function Landing() {
+  const navigate = useNavigate();
 
-interface LandingProps {
-  navigate: (screen: Screen) => void;
-}
-
-export function Landing({ navigate }: LandingProps) {
   const cards = [
     {
-      key: 'kb', icon: 'folder', go: 'kb' as Screen,
+      key: 'kb', icon: 'folder', path: '/kb',
       title: 'View Knowledge Base',
       desc: 'Browse and manage available documents',
-      foot: '124 documents · 8 categories',
     },
     {
-      key: 'chat', icon: 'chat', go: 'chat' as Screen,
+      key: 'chat', icon: 'chat', path: '/chat',
       title: 'Open Documentabot',
       desc: 'Ask questions and get cited answers',
-      foot: 'Grounded in indexed documents',
       primary: true,
     },
   ];
@@ -29,19 +24,6 @@ export function Landing({ navigate }: LandingProps) {
       background: 'radial-gradient(120% 80% at 50% -10%, var(--sand) 0%, var(--sand-2) 38%, var(--bg) 78%)',
     }}>
       <div style={{ maxWidth: 940, margin: '0 auto', padding: '76px 28px 56px', textAlign: 'center' }}>
-
-        {/* <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 8,
-          padding: '6px 13px 6px 9px', borderRadius: 999,
-          background: 'var(--white)', border: '1px solid var(--border)',
-          boxShadow: 'var(--sh-xs)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)',
-          animation: 'fadeUp .5s both', whiteSpace: 'nowrap',
-        }}>
-          <span className="badge badge-green" style={{ height: 20, padding: '0 7px' }}>
-            <span className="dot" /> Live
-          </span>
-          Internal knowledge assistant · secured to your workspace
-        </div> */}
 
         <h1 style={{
           fontSize: 52, lineHeight: 1.04, letterSpacing: '-1.6px', fontWeight: 800,
@@ -66,7 +48,7 @@ export function Landing({ navigate }: LandingProps) {
           {cards.map((c) => {
             const Icon = Icons[c.icon];
             return (
-              <button key={c.key} onClick={() => navigate(c.go)}
+              <button key={c.key} onClick={() => navigate(c.path)}
                 className="land-card"
                 style={{
                   textAlign: 'left', background: 'var(--white)',
@@ -96,36 +78,10 @@ export function Landing({ navigate }: LandingProps) {
                   </span>
                 </div>
                 <p style={{ margin: '7px 0 16px', fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.45 }}>{c.desc}</p>
-                {/* <div style={{
-                  paddingTop: 13, borderTop: '1px solid var(--border)',
-                  fontSize: 12, fontWeight: 600, color: 'var(--ink-3)',
-                  display: 'flex', alignItems: 'center', gap: 7,
-                }}>
-                  <Icons.shield size={14} /> {c.foot}
-                </div> */}
               </button>
             );
           })}
         </div>
-
-        {/* <div style={{
-          display: 'flex', justifyContent: 'center', gap: 0, marginTop: 40,
-          animation: 'fadeUp .5s .22s both',
-        }}>
-          {[
-            { v: '124', l: 'documents indexed' },
-            { v: '8', l: 'knowledge categories' },
-            { v: 'Today', l: 'last sync' },
-          ].map((s, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-              {i > 0 && <div style={{ width: 1, background: 'var(--border-2)', margin: '4px 28px' }} />}
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-.6px', color: 'var(--ink)' }}>{s.v}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--ink-3)', fontWeight: 600, marginTop: 2 }}>{s.l}</div>
-              </div>
-            </div>
-          ))}
-        </div> */}
 
         <div style={{
           marginTop: 46, fontSize: 12, color: 'var(--ink-4)', fontWeight: 600,

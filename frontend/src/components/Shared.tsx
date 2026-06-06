@@ -23,19 +23,15 @@ export function FileChip({ type, size = 36 }: FileChipProps) {
 }
 
 const STATUS_MAP: Record<string, { cls: string; label: string }> = {
-  indexed:    { cls: 'badge-green', label: 'Indexed' },
-  processing: { cls: 'badge-amber', label: 'Processing' },
-  review:     { cls: 'badge-slate', label: 'Needs Review' },
-  failed:     { cls: 'badge-red',   label: 'Failed' },
+  active:     { cls: 'badge-green', label: 'Active' },
+  inactive:   { cls: 'badge-slate', label: 'Inactive' },
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_MAP[status] || STATUS_MAP.review;
+  const s = STATUS_MAP[status] || { cls: 'badge-slate', label: status };
   return (
     <span className={'badge ' + s.cls}>
-      {status === 'processing'
-        ? <Icons.refresh size={12} className="spin" sw={2.2} />
-        : <span className="dot" />}
+      <span className="dot" />
       {s.label}
     </span>
   );

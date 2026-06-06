@@ -48,4 +48,5 @@ export const Icons: Record<string, (p: IconProps) => JSX.Element> = {
   paperclip:(p) => <Ic {...p} d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.6 1.6 0 0 1-2.3-2.3l7.3-7.3" />,
   sliders:  (p) => <Ic {...p}><path d="M4 7h10M18 7h2M4 17h6M14 17h6"/><circle cx="16" cy="7" r="2"/><circle cx="12" cy="17" r="2"/></Ic>,
   page:     (p) => <Ic {...p}><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></Ic>,
+  download: (p) => <Ic {...p}><path d="M12 4v12M7 12l5 5 5-5"/><path d="M4 19h16"/></Ic>,
 };

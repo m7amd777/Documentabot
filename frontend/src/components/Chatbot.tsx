@@ -1,71 +1,142 @@
 import { useState, useRef, useEffect } from 'react';
 import { Icons } from './Icons';
-import { CitationPanel } from './CitationPanel';
 import { AnswerCard, ToolCalls } from './ChatParts';
-import { CHATS, PROMPTS, TOOLBASE, matchAnswer } from '../data';
-import type { Message, Cite } from '../types';
+import { chats as chatsApi } from '../api';
+import type { ChatSession } from '../api';
+import type { Message, ToolDef, Source } from '../types';
+
+const ANIM_TOOLS: ToolDef[] = [
+  { id: 'search', label: 'Searching knowledge base',   icon: 'search' },
+  { id: 'rank',   label: 'Ranking relevant passages',  icon: 'layers' },
+  { id: 'gen',    label: 'Generating answer',           icon: 'spark'  },
+];
+const STEP_MS = 900;
+
+function dateGroup(dateStr: string): string {
+  const d = new Date(dateStr.replace(' ', 'T') + 'Z');
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgStart   = new Date(d.getFullYear(),   d.getMonth(),   d.getDate());
+  const diffDays   = Math.round((todayStart.getTime() - msgStart.getTime()) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7)   return d.toLocaleDateString('en-US', { weekday: 'long' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export function Chatbot() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [activeChat, setActiveChat] = useState<string | null>('c1');
-  const [busy, setBusy] = useState(false);
-  const [citePanel, setCitePanel] = useState<{ cite: Cite; searched: string[] } | null>(null);
+  const [chatList, setChatList]       = useState<ChatSession[]>([]);
+  const [loadingChats, setLoadingChats] = useState(true);
+  const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [messages, setMessages]       = useState<Message[]>([]);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [input, setInput]             = useState('');
+  const [busy, setBusy]               = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatsApi.list()
+      .then(setChatList)
+      .finally(() => setLoadingChats(false));
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
-  function newChat() {
+  async function selectChat(id: number) {
+    if (busy || id === activeChatId) return;
+    setActiveChatId(id);
     setMessages([]);
-    setCitePanel(null);
-    setActiveChat(null);
+    setLoadingMsgs(true);
+    try {
+      const msgs = await chatsApi.messages(id);
+      setMessages(msgs.map(m => ({
+        role: m.is_response ? 'assistant' : 'user',
+        id: `db-${m.id}`,
+        text: m.content,
+        status: m.is_response ? ('done' as const) : undefined,
+      })));
+    } finally {
+      setLoadingMsgs(false);
+    }
   }
 
-  function send(text: string) {
+  function newChat() {
+    if (busy) return;
+    setActiveChatId(null);
+    setMessages([]);
+  }
+
+  async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput('');
     setBusy(true);
-    const data = matchAnswer(text);
-    const tools = data.noAnswer ? TOOLBASE.slice(0, 3) : TOOLBASE;
-    const aId = 'a' + Date.now();
+    const aId = 'live-' + Date.now();
 
-    setMessages(m => [
-      ...m,
+    setMessages(prev => [
+      ...prev,
       { role: 'user', text },
-      { role: 'assistant', id: aId, status: 'thinking', data, tools, states: tools.map(() => 'pending') },
+      { role: 'assistant', id: aId, status: 'thinking', states: ANIM_TOOLS.map(() => 'pending') },
     ]);
 
-    let acc = 0;
-    tools.forEach((t, i) => {
-      setTimeout(() => {
-        setMessages(m => m.map(msg => msg.id === aId
-          ? { ...msg, states: msg.states!.map((s, j) => j === i ? 'running' : s) } : msg));
-      }, acc);
-      acc += t.ms;
-      setTimeout(() => {
-        setMessages(m => m.map(msg => msg.id === aId
-          ? { ...msg, states: msg.states!.map((s, j) => j === i ? 'done' : s) } : msg));
-      }, acc);
+    // Animate tool steps concurrently with the API call
+    let elapsed = 0;
+    ANIM_TOOLS.forEach((_, i) => {
+      setTimeout(() => setMessages(m => m.map(msg => msg.id === aId
+        ? { ...msg, states: msg.states!.map((s, j) => j === i ? 'running' : s) } : msg)), elapsed);
+      elapsed += STEP_MS;
+      setTimeout(() => setMessages(m => m.map(msg => msg.id === aId
+        ? { ...msg, states: msg.states!.map((s, j) => j === i ? 'done' : s) } : msg)), elapsed);
     });
-    setTimeout(() => {
-      setMessages(m => m.map(msg => msg.id === aId ? { ...msg, status: 'done' } : msg));
-      setBusy(false);
-    }, acc + 280);
-  }
 
-  function openCite(cite: Cite) {
-    const owner = messages.find(m => m.role === 'assistant' && m.data?.cites?.some(c => c.id === cite.id && c.doc === cite.doc));
-    setCitePanel({ cite, searched: owner?.data?.searched ?? [cite.doc] });
+    const animDone = new Promise<void>(r => setTimeout(r, elapsed));
+
+    try {
+      let answer: string;
+      let sources: Source[];
+
+      if (activeChatId === null) {
+        const [result] = await Promise.all([chatsApi.create(text), animDone]);
+        answer  = result.answer;
+        sources = result.sources;
+        setChatList(prev => [result.chat, ...prev]);
+        setActiveChatId(result.chat.id);
+      } else {
+        const [result] = await Promise.all([chatsApi.send(activeChatId, text), animDone]);
+        answer  = result.answer;
+        sources = result.sources;
+      }
+
+      setMessages(m => m.map(msg => msg.id === aId
+        ? { ...msg, status: 'done', text: answer, sources }
+        : msg));
+    } catch {
+      await animDone;
+      setMessages(m => m.map(msg => msg.id === aId
+        ? { ...msg, status: 'done', text: 'Sorry, something went wrong. Please try again.' }
+        : msg));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div style={{ display: 'flex', height: '100%', background: 'var(--bg)' }}>
-      <ChatSidebar active={activeChat} setActive={(id) => { setActiveChat(id); setMessages([]); setCitePanel(null); }} onNew={newChat} />
+      <ChatSidebar
+        chats={chatList}
+        loading={loadingChats}
+        activeId={activeChatId}
+        onSelect={selectChat}
+        onNew={newChat}
+      />
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '13px 22px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          padding: '13px 22px', borderBottom: '1px solid var(--border)',
+          background: 'rgba(255,255,255,.7)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
           <div style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--red)', display: 'grid', placeItems: 'center', color: '#fff', boxShadow: '0 3px 9px rgba(233,0,48,.3)' }}>
             <Icons.chat size={20} />
           </div>
@@ -76,34 +147,49 @@ export function Chatbot() {
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Answers are generated from indexed Benefit documents</div>
           </div>
-          <span className="mono" style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Icons.database size={13} /> 124 docs · 8 collections
-          </span>
         </div>
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '26px 0' }}>
           <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 24px' }}>
-            {messages.length === 0
-              ? <Welcome onPrompt={send} />
-              : messages.map((m, i) =>
-                  m.role === 'user'
-                    ? <UserMsg key={i} text={m.text!} />
-                    : <AssistantMsg key={m.id} msg={m} onOpenCite={openCite} onFollowup={send} />
-              )}
+            {loadingMsgs ? (
+              <div style={{ textAlign: 'center', paddingTop: 60, color: 'var(--ink-3)' }}>
+                <span className="spin" style={{ display: 'inline-flex' }}><Icons.refresh size={22} /></span>
+              </div>
+            ) : messages.length === 0 ? (
+              <Welcome onPrompt={send} />
+            ) : (
+              messages.map((m, i) =>
+                m.role === 'user'
+                  ? <UserMsg key={m.id ?? i} text={m.text!} />
+                  : <AssistantMsg key={m.id ?? i} msg={m} />
+              )
+            )}
           </div>
         </div>
 
         <Composer input={input} setInput={setInput} onSend={() => send(input)} busy={busy} />
       </div>
-
-      {citePanel && <CitationPanel cite={citePanel.cite} searched={citePanel.searched} onClose={() => setCitePanel(null)} />}
     </div>
   );
 }
 
-function ChatSidebar({ active, setActive, onNew }: { active: string | null; setActive: (id: string) => void; onNew: () => void }) {
-  const groups: Record<string, typeof CHATS> = {};
-  CHATS.forEach(c => { (groups[c.when] = groups[c.when] || []).push(c); });
+// ---------- Sidebar ----------
+
+interface ChatSidebarProps {
+  chats: ChatSession[];
+  loading: boolean;
+  activeId: number | null;
+  onSelect: (id: number) => void;
+  onNew: () => void;
+}
+
+function ChatSidebar({ chats, loading, activeId, onSelect, onNew }: ChatSidebarProps) {
+  const groups: Record<string, ChatSession[]> = {};
+  chats.forEach(c => {
+    const key = c.created_at ? dateGroup(c.created_at) : 'Recent';
+    (groups[key] = groups[key] ?? []).push(c);
+  });
+
   return (
     <div style={{ width: 256, flex: '0 0 256px', borderRight: '1px solid var(--border)', background: 'var(--white)', display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 14 }}>
@@ -111,30 +197,42 @@ function ChatSidebar({ active, setActive, onNew }: { active: string | null; setA
           <Icons.plus size={16} sw={2.2} /> New Chat
         </button>
       </div>
+
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 14px' }}>
-        {Object.entries(groups).map(([when, items]) => (
-          <div key={when} style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '.5px', padding: '8px 10px 5px' }}>{when}</div>
-            {items.map(c => {
-              const on = c.id === active;
-              return (
-                <button key={c.id} onClick={() => setActive(c.id)} style={{
-                  width: '100%', textAlign: 'left', padding: '9px 11px', borderRadius: 9, marginBottom: 2,
-                  border: 'none', background: on ? 'var(--red-tint)' : 'transparent',
-                  color: on ? 'var(--red-700)' : 'var(--ink-2)', fontSize: 13, fontWeight: 600,
-                  display: 'flex', alignItems: 'center', gap: 9, transition: '.12s',
-                  borderLeft: on ? '2px solid var(--red)' : '2px solid transparent',
-                }}
-                  onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--hover)'; }}
-                  onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
-                  <Icons.chat size={15} style={{ flex: '0 0 auto', opacity: on ? 1 : .6 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-                </button>
-              );
-            })}
+        {loading ? (
+          <div style={{ textAlign: 'center', paddingTop: 32, color: 'var(--ink-4)' }}>
+            <span className="spin" style={{ display: 'inline-flex' }}><Icons.refresh size={18} /></span>
           </div>
-        ))}
+        ) : chats.length === 0 ? (
+          <div style={{ padding: '24px 10px', textAlign: 'center', fontSize: 12.5, color: 'var(--ink-4)', fontWeight: 600, lineHeight: 1.5 }}>
+            No conversations yet.<br />Start a new chat to begin.
+          </div>
+        ) : (
+          Object.entries(groups).map(([when, items]) => (
+            <div key={when} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '.5px', padding: '8px 10px 5px' }}>{when}</div>
+              {items.map(c => {
+                const on = c.id === activeId;
+                return (
+                  <button key={c.id} onClick={() => onSelect(c.id)} style={{
+                    width: '100%', textAlign: 'left', padding: '9px 11px', borderRadius: 9, marginBottom: 2,
+                    border: 'none', background: on ? 'var(--red-tint)' : 'transparent',
+                    color: on ? 'var(--red-700)' : 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: 9, transition: '.12s',
+                    borderLeft: on ? '2px solid var(--red)' : '2px solid transparent',
+                  }}
+                    onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--hover)'; }}
+                    onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
+                    <Icons.chat size={15} style={{ flex: '0 0 auto', opacity: on ? 1 : .6 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))
+        )}
       </div>
+
       <div style={{ padding: 13, borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 8, lineHeight: 1.4 }}>
         <Icons.shield size={15} style={{ flex: '0 0 auto', color: 'var(--green)' }} />
         Conversations stay within your workspace
@@ -143,7 +241,9 @@ function ChatSidebar({ active, setActive, onNew }: { active: string | null; setA
   );
 }
 
-function Welcome({ onPrompt }: { onPrompt: (text: string) => void }) {
+// ---------- Message components ----------
+
+function Welcome({ onPrompt: _onPrompt }: { onPrompt: (text: string) => void }) {
   return (
     <div style={{ paddingTop: 26, animation: 'fadeUp .4s both' }}>
       <div style={{ width: 56, height: 56, borderRadius: 16, background: 'var(--red)', display: 'grid', placeItems: 'center', color: '#fff', boxShadow: '0 6px 18px rgba(233,0,48,.3)', marginBottom: 18 }}>
@@ -151,11 +251,13 @@ function Welcome({ onPrompt }: { onPrompt: (text: string) => void }) {
       </div>
       <h2 style={{ margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: '-.6px' }}>Ask a question about your documentation</h2>
       <p style={{ margin: '9px 0 0', fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.55, maxWidth: 520 }}>
-        Documentabot searches your indexed Benefit documents and answers with citations you can verify. Try one of these:
+        Documentabot searches your indexed Benefit documents and answers with citations you can verify.
       </p>
+
+      {/* TODO: prompt suggestions — see TODO.md
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11, marginTop: 22 }}>
         {PROMPTS.map((p, i) => (
-          <button key={i} onClick={() => onPrompt(p.q)} style={{
+          <button key={i} onClick={() => _onPrompt(p.q)} style={{
             textAlign: 'left', padding: '14px 15px', borderRadius: 13,
             border: '1px solid var(--border)', background: 'var(--white)', boxShadow: 'var(--sh-xs)',
             display: 'flex', alignItems: 'flex-start', gap: 11, transition: '.14s', cursor: 'pointer',
@@ -169,7 +271,9 @@ function Welcome({ onPrompt }: { onPrompt: (text: string) => void }) {
           </button>
         ))}
       </div>
-      <div style={{ marginTop: 20, fontSize: 12, color: 'var(--ink-4)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+      */}
+
+      <div style={{ marginTop: 28, fontSize: 12, color: 'var(--ink-4)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
         <Icons.shield size={14} /> Documentabot only answers using indexed knowledge base documents.
       </div>
     </div>
@@ -188,7 +292,7 @@ function UserMsg({ text }: { text: string }) {
   );
 }
 
-function AssistantMsg({ msg, onOpenCite, onFollowup }: { msg: Message; onOpenCite: (c: Cite) => void; onFollowup: (t: string) => void }) {
+function AssistantMsg({ msg }: { msg: Message }) {
   const thinking = msg.status === 'thinking';
   return (
     <div style={{ display: 'flex', gap: 13, marginBottom: 26 }}>
@@ -205,10 +309,15 @@ function AssistantMsg({ msg, onOpenCite, onFollowup }: { msg: Message; onOpenCit
                 </span>
                 Searching documents…
               </div>
-              <ToolCalls tools={msg.tools!} states={msg.states!} />
+              <ToolCalls tools={ANIM_TOOLS} states={msg.states!} />
             </div>
           ) : (
-            <AnswerCard data={msg.data!} tools={msg.tools!} states={msg.states!} onOpenCite={onOpenCite} onFollowup={onFollowup} />
+            <AnswerCard
+              text={msg.text ?? ''}
+              sources={msg.sources ?? []}
+              tools={msg.states ? ANIM_TOOLS : undefined}
+              states={msg.states}
+            />
           )}
         </div>
       </div>
@@ -220,8 +329,9 @@ function Dot({ d }: { d: number }) {
   return <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--red)', display: 'inline-block', animation: `blink 1.2s ${d}s infinite` }} />;
 }
 
+// ---------- Composer ----------
+
 function Composer({ input, setInput, onSend, busy }: { input: string; setInput: (v: string) => void; onSend: () => void; busy: boolean }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
   return (
     <div style={{ padding: '14px 24px 18px', borderTop: '1px solid var(--border)', background: 'var(--white)' }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -232,10 +342,7 @@ function Composer({ input, setInput, onSend, busy }: { input: string; setInput: 
         }}
           onFocusCapture={e => (e.currentTarget.style.borderColor = 'var(--red)')}
           onBlurCapture={e => (e.currentTarget.style.borderColor = 'var(--border-2)')}>
-          <button title="Attach (disabled in demo)" disabled style={{ width: 38, height: 38, borderRadius: 10, border: 'none', background: 'transparent', color: 'var(--ink-4)', display: 'grid', placeItems: 'center', flex: '0 0 auto', cursor: 'not-allowed' }}>
-            <Icons.paperclip size={18} />
-          </button>
-          <textarea ref={ref} value={input} rows={1}
+          <textarea value={input} rows={1}
             onChange={e => {
               setInput(e.target.value);
               e.target.style.height = 'auto';
